@@ -1,6 +1,6 @@
 import type { NextAuthConfig } from "next-auth";
 
-const open = ["/login", "/portal/login", "/portal/accept"];
+const open = ["/login", "/setup", "/portal/login", "/portal/accept"];
 
 // Edge-safe part of the auth config (no database), shared by the proxy and src/auth.ts.
 export const authConfig = {

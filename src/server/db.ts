@@ -25,12 +25,23 @@ function openHosted(url: string) {
   return drizzlePg({ client: postgres(url, { prepare: false, max: 5 }), schema }) as unknown as Db;
 }
 
+// DATABASE_URL, or the POSTGRES_URL the Supabase integration adds on Vercel (transaction pooler, IPv4).
+// The integration's extra "supa" query param isn't a Postgres setting, so it's dropped.
+export function databaseUrl() {
+  const raw = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  if (!raw) return undefined;
+  const url = new URL(raw);
+  url.searchParams.delete("supa");
+  return url.toString();
+}
+
 const g = globalThis as unknown as { keywayDb?: Promise<Db> };
 
 // One instance per server process; kept on globalThis so dev hot reload doesn't open a second one.
 // A failed open is forgotten so the next request retries instead of failing until restart.
 export function getDb() {
-  if (process.env.DATABASE_URL) return (g.keywayDb ??= Promise.resolve(openHosted(process.env.DATABASE_URL)));
+  const url = databaseUrl();
+  if (url) return (g.keywayDb ??= Promise.resolve(openHosted(url)));
   if (process.env.NODE_ENV === "production" && process.env.VERCEL) throw new Error("DATABASE_URL is required on Vercel");
   g.keywayDb ??= openDb(process.env.PGLITE_DIR ?? path.join(process.cwd(), ".data", "pglite"))
     .then(async (db) => {

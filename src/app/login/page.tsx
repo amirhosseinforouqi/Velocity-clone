@@ -1,9 +1,14 @@
 import { KeyRound } from "lucide-react";
+import { redirect } from "next/navigation";
+import { getDb } from "@/server/db";
+import { needsSetup } from "@/server/setup";
 import { login } from "./actions";
 
 export const metadata = { title: "Sign in · Keyway" };
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; mfa?: string; next?: string; callbackUrl?: string }> }) {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; mfa?: string; setup?: string; next?: string; callbackUrl?: string }> }) {
+  // A fresh deployment has no firm yet: send the first visitor to setup.
+  if (await needsSetup(await getDb())) redirect("/setup");
   const sp = await searchParams;
   // The proxy sends a full URL in callbackUrl; keep only its path.
   const cb = sp.callbackUrl ? new URL(sp.callbackUrl, "http://x") : null;
@@ -18,6 +23,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         </div>
         <h1 className="mb-4 text-sm text-slate-500">{mfa ? "Two-step verification" : "Sign in to your account"}</h1>
         {sp.error && <p role="alert" className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{mfa ? "Password or code is incorrect." : "Email or password is incorrect."}</p>}
+        {sp.setup && !sp.error && <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">Your workspace is ready. Sign in with the email and password you just chose.</p>}
         {mfa && !sp.error && <p className="mb-4 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-800">Enter your password again with the 6-digit code from your authenticator app.</p>}
         <input type="hidden" name="next" value={next} />
         <label className="mb-4 block text-sm font-medium text-slate-700">

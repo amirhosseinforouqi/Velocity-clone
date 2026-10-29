@@ -1,13 +1,14 @@
 // Applies drizzle/ migrations to the hosted database, then makes sure the private storage bucket exists:
 //   DATABASE_URL=... SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run db:migrate
-// Use the session pooler or direct connection string (port 5432) for migrations. Safe to re-run; it never deletes data.
+// On Vercel, `vercel-build` runs this before `next build` with the Supabase integration's POSTGRES_URL. Safe to re-run; it never deletes data.
 import { createClient } from "@supabase/supabase-js";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
+import { databaseUrl } from "../src/server/db.ts";
 
-const url = process.env.DATABASE_URL;
-if (!url) throw new Error("Set DATABASE_URL");
+const url = databaseUrl();
+if (!url) throw new Error("Set DATABASE_URL (or POSTGRES_URL)");
 const client = postgres(url, { max: 1, prepare: false });
 await migrate(drizzle({ client }), { migrationsFolder: "drizzle" });
 console.log("Migrations applied");

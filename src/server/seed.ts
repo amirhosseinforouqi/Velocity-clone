@@ -59,7 +59,7 @@ const starterTemplates: { name: string; rule: Record<string, string[]> }[] = [
   { name: "Home insurance binder", rule: { [PURPOSE]: ["Purchase", "Refinance"] } },
 ];
 
-async function seedTemplates(db: Db) {
+export async function seedTemplates(db: Db) {
   for (const org of await db.select({ id: organizations.id }).from(organizations))
     await db.insert(conditionTemplates).values(starterTemplates.map((t) => ({ ...t, organizationId: org.id })));
 }
