@@ -64,6 +64,13 @@
       "when": 1793286142659,
       "tag": "0008_portal_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793308334767,
+      "tag": "0009_client_temp_password",
+      "breakpoints": true
     }
   ]
 }

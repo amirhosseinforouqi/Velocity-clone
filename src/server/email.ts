@@ -9,9 +9,15 @@ import { emailDeliveries, emailTemplates, organizations } from "./schema.ts";
 export const templateKinds = {
   invitation: {
     label: "Portal invitation",
-    vars: ["firm", "name", "link", "expires"],
-    subject: "{{firm}} invited you to your secure client portal",
-    body: "Hi {{name}},\n\n{{firm}} has set up a secure portal for your mortgage application. Use it to upload documents, follow your application's progress and message your team.\n\nAccept your invitation: {{link}}\n\nThis link expires on {{expires}} and can only be used once. If you weren't expecting it, you can ignore this email.",
+    vars: ["firm", "name", "link", "username", "password", "expires"],
+    subject: "Welcome to your secure client portal at {{firm}}",
+    body: "Hi {{name}},\n\nWelcome! {{firm}} has set up your personal client portal for your mortgage application. Use it to upload your documents securely, follow your application's progress and message your team.\n\nSign in here: {{link}}\nUsername: {{username}}\nTemporary password: {{password}}\n\nThe first time you sign in, you'll be asked to choose your own password. The temporary password stops working on {{expires}}. If you weren't expecting this email, you can ignore it.",
+  },
+  portal_added: {
+    label: "Application added to portal",
+    vars: ["firm", "name", "link", "username"],
+    subject: "{{firm}} added your application to your client portal",
+    body: "Hi {{name}},\n\n{{firm}} has added your mortgage application to your secure client portal. Sign in with your existing password to upload documents and follow its progress:\n\n{{link}}\nUsername: {{username}}",
   },
   document_request: {
     label: "Documents requested",

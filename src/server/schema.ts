@@ -293,6 +293,8 @@ export const clients = pgTable("clients", {
   email: text("email").notNull(),
   accountId: uuid("account_id"),
   passwordHash: text("password_hash"),
+  // Set while the password is the temporary one from the welcome email: it stops working then, and must be changed at first sign-in.
+  passwordExpiresAt: timestamp("password_expires_at", { withTimezone: true }),
   emailNotifications: boolean("email_notifications").notNull().default(true),
   lastSignInAt: timestamp("last_sign_in_at", { withTimezone: true }),
   disabledAt: timestamp("disabled_at", { withTimezone: true }),
@@ -301,7 +303,8 @@ export const clients = pgTable("clients", {
 
 export const invitationStatus = pgEnum("invitation_status", ["pending", "accepted", "revoked"]);
 
-// Only the SHA-256 of the token is stored; the link is emailed and shown once. Expiry is derived from expires_at.
+// One per welcome email. Pending until the client replaces the temporary password; expires_at is that password's expiry.
+// token_hash is from the old one-time-link invitations and is no longer written.
 export const clientInvitations = pgTable("client_invitations", {
   id: id(),
   organizationId: uuid("organization_id").notNull().references(() => organizations.id),
@@ -309,7 +312,7 @@ export const clientInvitations = pgTable("client_invitations", {
   contactId: uuid("contact_id").notNull().references(() => contacts.id),
   clientId: uuid("client_id").references(() => clients.id),
   email: text("email").notNull(),
-  tokenHash: text("token_hash").notNull().unique(),
+  tokenHash: text("token_hash").unique(),
   status: invitationStatus("status").notNull().default("pending"),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   sentCount: integer("sent_count").notNull().default(0),

@@ -15,15 +15,15 @@ import { openDb, type Db } from "./db.ts";
 import { applyWebhookEvent, verifyWebhook } from "./email.ts";
 import { base32, totp } from "./mfa.ts";
 import {
-  addNote, finishUpload, inviteApplicant, portalDashboard, portalWorkspace, requestDocuments, reviewRequest, setStage, staffFile, staffReply, startConversation, startUpload,
+  addNote, finishUpload, inviteApplicant, portalDashboard, revokeInvitation, portalWorkspace, requestDocuments, reviewRequest, setStage, staffFile, staffReply, startConversation, startUpload,
   topBarPortal,
 } from "./portal.ts";
 import { runRetention } from "./portal-admin.ts";
 import {
-  acceptInvitation, clientAddVersion, clientDeal, clientDeals, clientFile, clientFinishUpload, clientMarkRead, clientNotifications, clientReply, clientStartConversation,
-  clientStartUpload, getClientAccount, invitationInfo, verifyClientLogin, type ClientAccount,
+  clientAddVersion, clientDeal, clientDeals, clientFile, clientFinishUpload, clientMarkRead, clientNotifications, clientReply, clientStartConversation,
+  clientStartUpload, getClientAccount, onTempPassword, setOwnPassword, verifyClientLogin, type ClientAccount,
 } from "./portal-client.ts";
-import { dealBorrowers, deals, emailDeliveries, files, organizations, users } from "./schema.ts";
+import { clientInvitations, clients, dealBorrowers, deals, emailDeliveries, files, organizations, users } from "./schema.ts";
 import { seedIfEmpty } from "./seed.ts";
 import { putFile } from "./storage.ts";
 import { enableMfa, startMfa, verifyLogin } from "./users.ts";
@@ -46,8 +46,6 @@ before(async () => {
 });
 after(() => rm(uploads, { recursive: true, force: true }));
 
-const token = (link: string | null) => new URL(link!).searchParams.get("token")!;
-
 // A deal with two applicants who each have an email address.
 async function application(tag: string) {
   const a = await createContact(db, as.agent, { firstName: "Test", lastName: `Primary ${tag}`, email: `primary.${tag}@example.test` });
@@ -57,10 +55,12 @@ async function application(tag: string) {
   return { deal, a, b };
 }
 
+// Staff invites; the client signs in with the temporary password and chooses their own.
 async function invited(dealId: string, contactId: string, password = PW) {
   const inv = await inviteApplicant(db, as.agent, dealId, contactId);
-  const done = await acceptInvitation(db, token(inv.link), { newPassword: password });
-  return (await getClientAccount(db, done.accountId))!;
+  const login = await verifyClientLogin(db, inv.login!.username, inv.login!.password!);
+  await setOwnPassword(db, (await getClientAccount(db, login!.id))!, password);
+  return (await getClientAccount(db, login!.id))!;
 }
 
 // Client upload: start (signed URL), the bytes arrive, finish (checks + scan).
@@ -76,18 +76,23 @@ test("the full workflow: invite, accept, request, upload, replace, message, stag
   // 1. Staff invites. No email provider in tests, so it says so and hands back the link instead of pretending.
   const inv = await inviteApplicant(db, as.agent, deal.id, a.id);
   assert.equal(inv.status, "not_configured");
-  assert.match(inv.link!, /\/portal\/accept\?token=/);
+  assert.match(inv.login!.link, /\/portal\/login$/);
+  assert.equal(inv.login!.username, "primary.flow@example.test");
+  assert.match(inv.login!.password!, /^[A-Za-z2-9]{12}$/);
   const [delivery] = await db.select().from(emailDeliveries).where(eq(emailDeliveries.invitationId, inv.invitationId));
   assert.equal(delivery.status, "not_configured");
   assert.equal((await portalDashboard(db, as.agent)).pendingInvitations >= 1, true);
 
-  // 2. The client accepts and signs in. The link works once.
-  const info = await invitationInfo(db, token(inv.link));
-  assert.equal(info?.hasAccount, false);
-  await assert.rejects(acceptInvitation(db, token(inv.link), { newPassword: "short" }), /at least 10/);
-  const done = await acceptInvitation(db, token(inv.link), { newPassword: PW });
-  assert.equal(done.dealId, deal.id);
-  await assert.rejects(acceptInvitation(db, token(inv.link), { newPassword: PW }), /no longer valid/);
+  // 2. The client signs in with the temporary password and must choose their own; then the temporary one stops working.
+  const first = await verifyClientLogin(db, inv.login!.username, inv.login!.password!);
+  const temp = (await getClientAccount(db, first!.id))!;
+  assert.equal(onTempPassword(temp), true);
+  await assert.rejects(setOwnPassword(db, temp, "short"), /at least 10/);
+  await assert.rejects(setOwnPassword(db, temp, inv.login!.password!), /different from the temporary/);
+  await setOwnPassword(db, temp, PW);
+  await assert.rejects(setOwnPassword(db, (await getClientAccount(db, first!.id))!, PW), /already set/);
+  assert.equal(await verifyClientLogin(db, inv.login!.username, inv.login!.password!), null);
+  assert.equal((await db.select().from(clientInvitations).where(eq(clientInvitations.id, inv.invitationId)))[0].status, "accepted");
   assert.equal(await verifyClientLogin(db, `primary.flow@example.test`, "wrong-password"), null);
   const login = await verifyClientLogin(db, " PRIMARY.flow@example.test ", PW);
   assert.equal(login?.kind, "client");
@@ -194,6 +199,41 @@ test("isolation: co-applicants, other clients, staff notes and other firms", asy
   await assert.rejects(portalWorkspace(db, outsider, deal.id), Forbidden);
   await assert.rejects(inviteApplicant(db, outsider, deal.id, a.id), Forbidden);
   assert.equal(await staffFile(db, outsider, f.fileId), null);
+});
+
+test("temporary passwords: expiry, revoke, reset, and a sign-in shared with another firm", async () => {
+  const { deal, a, b } = await application("temp");
+
+  // An unused temporary password stops working at its expiry.
+  const inv = await inviteApplicant(db, as.agent, deal.id, a.id);
+  await db.update(clients).set({ passwordExpiresAt: new Date(Date.now() - 1000) }).where(eq(clients.contactId, a.id));
+  assert.equal(await verifyClientLogin(db, inv.login!.username, inv.login!.password!), null);
+
+  // Revoking before the first sign-in removes the temporary sign-in.
+  const again = await inviteApplicant(db, as.agent, deal.id, a.id);
+  await revokeInvitation(db, as.agent, again.invitationId);
+  assert.equal(await verifyClientLogin(db, again.login!.username, again.login!.password!), null);
+  assert.equal((await db.select().from(clients).where(eq(clients.contactId, a.id)))[0].accountId, null);
+
+  // Inviting again after the client chose a password resets it (forgotten password); the old one stops working.
+  const account = await invited(deal.id, b.id);
+  const reset = await inviteApplicant(db, as.agent, deal.id, b.id);
+  assert.equal(await verifyClientLogin(db, "co.temp@example.test", PW), null);
+  assert.equal((await verifyClientLogin(db, "co.temp@example.test", reset.login!.password!))?.id, account.accountId);
+  await setOwnPassword(db, (await getClientAccount(db, account.accountId))!, PW);
+
+  // Another firm inviting the same email links the existing sign-in without resetting or revealing it.
+  const [org] = await db.insert(organizations).values({ name: "Second Firm" }).returning();
+  const them: Actor = { ...as.admin, organizationId: org.id };
+  const c = await createContact(db, them, { firstName: "Test", lastName: "Elsewhere", email: "co.temp@example.test" });
+  const theirDeal = await createDeal(db, them, c.id, { status: "new_deal" });
+  assert.equal((await inviteApplicant(db, them, theirDeal.id, c.id)).login!.password, null);
+  assert.ok(await verifyClientLogin(db, "co.temp@example.test", PW));
+  const both = (await getClientAccount(db, account.accountId))!;
+  assert.deepEqual((await clientDeals(db, both)).map((d) => d.id).sort(), [deal.id, theirDeal.id].sort());
+  // ...and from then on the first firm can't reset it either.
+  assert.equal((await inviteApplicant(db, as.agent, deal.id, b.id)).login!.password, null);
+  assert.ok(await verifyClientLogin(db, "co.temp@example.test", PW));
 });
 
 test("uploads are checked by their bytes, not their name", async () => {

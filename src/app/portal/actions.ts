@@ -8,8 +8,8 @@ import { Forbidden } from "@/server/access";
 import { ValidationError } from "@/server/contacts";
 import { getDb } from "@/server/db";
 import {
-  acceptInvitation, clientAddVersion, clientFinishUpload, clientMarkRead, clientReply, clientStartConversation, clientStartUpload, readClientNotifications, saveClientProfile,
-  type ClientAccount,
+  clientAddVersion, clientFinishUpload, clientMarkRead, clientReply, clientStartConversation, clientStartUpload, readClientNotifications, saveClientProfile,
+  setOwnPassword, type ClientAccount,
 } from "@/server/portal-client";
 
 // Client-side actions. Every one re-loads the signed-in client and checks the deal through their own applicant record.
@@ -40,21 +40,17 @@ export async function clientLogout() {
   await signOut({ redirectTo: "/portal/login" });
 }
 
-// Accepts the invitation, then signs the client in with the password they just gave.
-export async function acceptAction(_: { error?: string } | null, form: FormData): Promise<{ error?: string }> {
-  const token = String(form.get("token") ?? "");
+// First sign-in: replaces the temporary password from the welcome email.
+export async function setPasswordAction(_: { error?: string } | null, form: FormData): Promise<{ error?: string }> {
   const password = String(form.get("password") ?? "");
-  const newPassword = String(form.get("newPassword") ?? "");
-  if (newPassword && newPassword !== String(form.get("confirm") ?? "")) return { error: "The passwords don't match" };
-  let done;
+  if (password !== String(form.get("confirm") ?? "")) return { error: "The passwords don't match" };
   try {
-    done = await acceptInvitation(await getDb(), token, { password, newPassword });
+    await setOwnPassword(await getDb(), await requireClient({ temporary: true }), password);
   } catch (e) {
     if (e instanceof ValidationError) return { error: e.message };
     throw e;
   }
-  await signIn("client", { email: done.email, password: password || newPassword, redirectTo: `/portal/applications/${done.dealId}` });
-  return {};
+  redirect("/portal");
 }
 
 type FileInput = { fileName: string; size: number; contentType: string };

@@ -3,7 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import { redirect } from "next/navigation";
 import { authConfig } from "./auth.config";
 import { getDb } from "@/server/db";
-import { getClientAccount, verifyClientLogin } from "@/server/portal-client";
+import { getClientAccount, onTempPassword, verifyClientLogin } from "@/server/portal-client";
 import { getActor, verifyLogin } from "@/server/users";
 
 // Password was right but an authenticator code is needed; the login page then asks for it.
@@ -43,9 +43,11 @@ export async function requireActor({ allowWithoutMfa = false } = {}) {
   return actor;
 }
 
-export async function requireClient() {
+// Until the temporary password from the welcome email is replaced, the only page a client can reach is the one that replaces it.
+export async function requireClient({ temporary = false } = {}) {
   const user = (await auth())?.user;
   const account = user?.id && user.kind === "client" ? await getClientAccount(await getDb(), user.id) : null;
   if (!account) redirect(user?.kind === "staff" ? "/" : "/portal/login");
+  if (onTempPassword(account) !== temporary) redirect(temporary ? "/portal" : "/portal/welcome");
   return account;
 }

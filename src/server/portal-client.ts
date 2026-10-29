@@ -2,7 +2,6 @@
 // A client sees a deal only while a clients row of theirs is an applicant on it with portal_access; inside it, only shared
 // items and the ones addressed to their own applicant record. Staff notes, internal statuses and other applicants' private
 // items are never selected here.
-import { randomUUID } from "node:crypto";
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import { Forbidden } from "./access.ts";
 import { text } from "./admin.ts";
@@ -12,7 +11,7 @@ import type { Db, Tx } from "./db.ts";
 import { dealCode } from "./deal-status.ts";
 import { hashPassword } from "./password.ts";
 import {
-  addVersion, claimFiles, conversationsFor, finishUpload, hashToken, insertMessage, markRead, notifyStaff, startUpload, UUID, type Uploader,
+  addVersion, claimFiles, conversationsFor, finishUpload, insertMessage, markRead, notifyStaff, startUpload, UUID, type Uploader,
 } from "./portal.ts";
 import {
   clientInvitations, clients, contacts, conversations, dealBorrowers, deals, documentRequests, documentVersions, files,
@@ -23,59 +22,26 @@ import { checkPassword, clearFailures, locked, recordFailure } from "./users.ts"
 export type ClientAccount = { accountId: string; email: string; clients: (typeof clients.$inferSelect)[] };
 const MIN_PASSWORD = 10;
 
-// ---- Invitations
+// ---- First sign-in: the temporary password from the welcome email is replaced with the client's own.
 
-async function pendingInvitation(db: Db | Tx, token: string, now: Date) {
-  if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
-  const [i] = await db.select().from(clientInvitations).where(eq(clientInvitations.tokenHash, hashToken(token)));
-  return i && i.status === "pending" && i.expiresAt > now ? i : null;
-}
+export const onTempPassword = (account: ClientAccount) => account.clients.some((c) => c.passwordExpiresAt);
 
-// Existing sign-in for this person: their own clients row, or (same email) another firm's.
-async function existingAccount(db: Db | Tx, inv: { clientId: string | null; email: string }) {
-  const [own] = inv.clientId ? await db.select().from(clients).where(and(eq(clients.id, inv.clientId), isNotNull(clients.accountId))) : [];
-  if (own) return own;
-  const [other] = await db.select().from(clients).where(and(eq(clients.email, inv.email), isNotNull(clients.accountId), isNull(clients.disabledAt))).limit(1);
-  return other ?? null;
-}
-
-// What the accept page shows. Nothing about the deal itself until the invitation is accepted.
-export async function invitationInfo(db: Db, token: string, now = new Date()) {
-  const inv = await pendingInvitation(db, token, now);
-  if (!inv) return null;
-  const [org] = await db.select({ name: organizations.name }).from(organizations).where(eq(organizations.id, inv.organizationId));
-  const [c] = await db.select({ first: contacts.firstName }).from(contacts).where(eq(contacts.id, inv.contactId));
-  return { firm: org.name, firstName: c.first, email: inv.email, hasAccount: !!(await existingAccount(db, inv)), expiresAt: inv.expiresAt };
-}
-
-// New account: newPassword. Existing account (same person, this or another firm): its password, so a leaked link can't take it over.
-export async function acceptInvitation(db: Db, token: string, input: { password?: string; newPassword?: string }, now = new Date()) {
-  const result = await db.transaction(async (tx) => {
-    const inv = await pendingInvitation(tx, token, now);
-    if (!inv) throw new ValidationError("This invitation link is no longer valid. Ask your team to send a new one.");
-    const existing = await existingAccount(tx, inv);
-    let accountId: string, passwordHash: string;
-    if (existing) {
-      if (locked(`c:${inv.email}`) || !(await checkPassword(input.password ?? "", existing.passwordHash))) {
-        recordFailure(`c:${inv.email}`);
-        throw new ValidationError("That password isn't right");
-      }
-      [accountId, passwordHash] = [existing.accountId!, existing.passwordHash!];
-    } else {
-      const pw = input.newPassword ?? "";
-      if (pw.length < MIN_PASSWORD || pw.length > 200) throw new ValidationError(`Choose a password of at least ${MIN_PASSWORD} characters`);
-      [accountId, passwordHash] = [randomUUID(), await hashPassword(pw)];
-    }
-    const [client] = await tx.update(clients).set({ accountId, passwordHash, email: inv.email, disabledAt: null, lastSignInAt: now }).where(eq(clients.contactId, inv.contactId)).returning();
-    await tx.update(dealBorrowers).set({ portalAccess: true }).where(and(eq(dealBorrowers.dealId, inv.dealId), eq(dealBorrowers.contactId, inv.contactId)));
-    await tx.update(clientInvitations).set({ status: "accepted", acceptedAt: now }).where(eq(clientInvitations.id, inv.id));
-    await auditClient(tx, client, "deal", inv.dealId, "portal_invite_accept", { invitationId: inv.id, linked: !!existing });
-    const [deal] = await tx.select().from(deals).where(eq(deals.id, inv.dealId));
-    return { accountId, email: inv.email, deal };
+export async function setOwnPassword(db: Db, account: ClientAccount, password: string) {
+  if (!onTempPassword(account)) throw new ValidationError("Your password is already set");
+  if (password.length < MIN_PASSWORD || password.length > 200) throw new ValidationError(`Choose a password of at least ${MIN_PASSWORD} characters`);
+  if (await checkPassword(password, account.clients[0].passwordHash)) throw new ValidationError("Choose a password different from the temporary one");
+  const passwordHash = await hashPassword(password);
+  const accepted = await db.transaction(async (tx) => {
+    await tx.update(clients).set({ passwordHash, passwordExpiresAt: null }).where(eq(clients.accountId, account.accountId));
+    const rows = await tx.update(clientInvitations).set({ status: "accepted", acceptedAt: new Date() })
+      .where(and(inArray(clientInvitations.clientId, account.clients.map((c) => c.id)), eq(clientInvitations.status, "pending"))).returning();
+    for (const i of rows) await auditClient(tx, account.clients.find((c) => c.id === i.clientId)!, "deal", i.dealId, "portal_invite_accept", { invitationId: i.id });
+    return rows;
   });
-  clearFailures(`c:${result.email}`);
-  await notifyStaff(db, result.deal, `A client accepted their portal invitation on ${dealCode(result.deal.number)}`, "invite_accepted");
-  return { accountId: result.accountId, email: result.email, dealId: result.deal.id };
+  for (const i of accepted) {
+    const [deal] = await db.select().from(deals).where(eq(deals.id, i.dealId));
+    await notifyStaff(db, deal, `A client signed in to the portal for ${dealCode(deal.number)}`, "invite_accepted");
+  }
 }
 
 // ---- Sign-in and session
@@ -84,7 +50,8 @@ export async function verifyClientLogin(db: Db, rawEmail: string, password: stri
   const email = rawEmail.trim().toLowerCase();
   if (locked(`c:${email}`)) return null;
   const [c] = await db.select().from(clients).where(and(eq(clients.email, email), isNotNull(clients.accountId), isNull(clients.disabledAt))).limit(1);
-  if (!c || !(await checkPassword(password, c.passwordHash))) {
+  // An unused temporary password stops working at its expiry; the client asks their team for a new invitation.
+  if (!c || (c.passwordExpiresAt && c.passwordExpiresAt <= new Date()) || !(await checkPassword(password, c.passwordHash))) {
     recordFailure(`c:${email}`);
     return null;
   }

@@ -149,20 +149,28 @@ export function ConversationList({ list, open }: { list: Conversation[]; open: (
 // ---- The deal's Client Portal tab
 
 const staffUpload = (dealId: string) => ({ start: (i: { fileName: string; size: number; contentType: string }) => staffStartUploadAction(dealId, i), finish: staffFinishUploadAction });
-const inviteText: Record<string, string> = { pending: "Invited", accepted: "Accepted", revoked: "Revoked", expired: "Expired" };
+const inviteText: Record<string, string> = { pending: "Invited", accepted: "Password set", revoked: "Revoked", expired: "Expired" };
 
 export function AppDealPortal({ w, orgAdmin }: { w: PortalWorkspace; orgAdmin: boolean }) {
   usePoll();
   const id = w.deal.id;
   const [modal, setModal] = useState<ReactNode>(null);
-  const [link, setLink] = useState<{ name: string; url: string; why: string } | null>(null);
+  const [login, setLogin] = useState<{ name: string; why: string; text: string } | null>(null);
   const [convId, setConvId] = useState<string | null>(null);
   const run = useRun();
   const close = () => setModal(null);
   const name = (contactId: string | null) => (contactId ? w.applicants.find((a) => a.contactId === contactId)?.name ?? "Applicant" : "All applicants");
-  const invite = (fn: () => Promise<{ error?: string; data?: { link: string | null; error: string | null } }>, who: string) => run.go(async () => {
+  type Login = { link: string; username: string; password: string | null; expires: string | null };
+  const invite = (fn: () => Promise<{ error?: string; data?: { login: Login | null; error: string | null } }>, who: string) => run.go(async () => {
     const r = await fn();
-    if (r.data?.link) setLink({ name: who, url: r.data.link, why: r.data.error ?? (w.emailConfigured ? "The email couldn't be sent." : "Email sending isn't set up.") });
+    const l = r.data?.login;
+    if (l) setLogin({
+      name: who, why: r.data!.error ?? (w.emailConfigured ? "The email couldn't be sent." : "Email sending isn't set up."),
+      text: `Sign in: ${l.link}
+Username: ${l.username}
+` + (l.password ? `Temporary password: ${l.password}
+It stops working on ${l.expires}. You'll choose your own password when you first sign in.` : "Password: the one you already use for this portal"),
+    });
     return r;
   });
   const conv = w.conversations.find((c) => c.id === convId);
@@ -181,24 +189,24 @@ export function AppDealPortal({ w, orgAdmin }: { w: PortalWorkspace; orgAdmin: b
         </ol>
       </section>
       {run.error && <div className="mx-[25px]"><Err text={run.error} /></div>}
-      {link && (
+      {login && (
         <div role="status" className="mx-[25px] mb-4 rounded-[3px] border border-[#faebcc] bg-[#fcf8e3] p-3 text-[12.6px] text-[#8a6d3b]">
-          <p><strong>The invitation for {link.name} was not emailed.</strong> {link.why} Share this one-time link with them another way (it isn&apos;t shown again):</p>
-          <input readOnly value={link.url} onFocus={(e) => e.target.select()} aria-label="Invitation link" className={cn(input, "mt-2")} />
+          <p><strong>The welcome email for {login.name} was not sent.</strong> {login.why} Give them these sign-in details another way (they aren&apos;t shown again):</p>
+          <textarea readOnly rows={4} value={login.text} onFocus={(e) => e.target.select()} aria-label="Portal sign-in details" className={cn(input, "mt-2 h-auto font-mono")} />
           <div className="mt-2 flex gap-2">
-            <button onClick={() => navigator.clipboard?.writeText(link.url)} className={cn(blueBtn, small)}>Copy</button>
-            <button onClick={() => setLink(null)} className={cn(greyBtn, small)}>Done</button>
+            <button onClick={() => navigator.clipboard?.writeText(login.text)} className={cn(blueBtn, small)}>Copy</button>
+            <button onClick={() => setLogin(null)} className={cn(greyBtn, small)}>Done</button>
           </div>
         </div>
       )}
 
-      <GridPanel title="Applicants" tools={!w.emailConfigured && <span className="text-[#8a6d3b]">Email not set up: invitation links are shown here instead</span>}>
+      <GridPanel title="Applicants" tools={!w.emailConfigured && <span className="text-[#8a6d3b]">Email not set up: sign-in details are shown here instead</span>}>
         <Grid min={760} head={["Applicant", "Email", "Portal account", "Invitation", "Access", ""]} rows={w.applicants.map((a) => {
           const inv = a.invitations[0];
           return [
             <span key="n">{a.name}{a.primary && <span className="text-[#999]"> (primary)</span>}</span>,
             a.email || <span className="text-[#a94442]">No email on contact</span>,
-            a.accountLinked ? <span key="a">Active{a.lastSignInAt && <span className="block text-[#999]">Last sign-in {when(a.lastSignInAt)}</span>}</span> : "Not yet",
+            a.accountLinked ? <span key="a">{inv?.status === "pending" ? "Temporary password" : "Active"}{a.lastSignInAt && <span className="block text-[#999]">Last sign-in {when(a.lastSignInAt)}</span>}</span> : "Not yet",
             inv ? (
               <span key="i">
                 {inviteText[inv.status] ?? inv.status}{inv.status === "pending" && ` · expires ${when(inv.expiresAt)}`}
@@ -213,7 +221,7 @@ export function AppDealPortal({ w, orgAdmin }: { w: PortalWorkspace; orgAdmin: b
               {inv?.status === "pending" ? <>
                 <button disabled={run.pending} onClick={() => invite(() => resendInviteAction(inv.id), a.name)} className={cn(blueBtn, small)}>Resend</button>
                 <button disabled={run.pending} onClick={() => run.go(() => revokeInviteAction(inv.id))} className={cn(greyBtn, small)}>Revoke</button>
-              </> : !a.accountLinked && <button disabled={run.pending || !a.email} onClick={() => invite(() => inviteAction(id, a.contactId), a.name)} className={cn(greenBtn, small)}>{inv ? "Invite again" : "Invite"}</button>}
+              </> : <button disabled={run.pending || !a.email} onClick={() => invite(() => inviteAction(id, a.contactId), a.name)} className={cn(greenBtn, small)}>{a.accountLinked ? "Send new password" : inv ? "Invite again" : "Invite"}</button>}
               {a.accountLinked && <button disabled={run.pending} onClick={() => run.go(() => portalAccessAction(id, a.contactId, !a.portalAccess))} className={cn(greyBtn, small)}>{a.portalAccess ? "Turn off access" : "Turn on access"}</button>}
             </span>,
           ];

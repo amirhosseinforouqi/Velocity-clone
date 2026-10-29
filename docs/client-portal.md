@@ -12,7 +12,7 @@ All data in this repository, its tests and its screenshots is synthetic.
 | Staff sign-in | Auth.js credentials provider, scrypt hashes, optional TOTP (RFC 6238) | The org setting "Require staff MFA" sends staff without MFA to `/user/mfa` (`src/auth.ts:42`). |
 | Client sign-in | Auth.js `client` provider with its own account table | The session carries `kind` (`staff` or `client`). `requireActor` and `requireClient` in `src/auth.ts` refuse the wrong kind. |
 | Files | Supabase Storage, private bucket `client-documents`, through a server-side service-role client. Local disk when Supabase isn't configured | Uploads go straight to storage through a signed upload URL. Downloads use a 60-second signed URL (`src/server/storage.ts:74`). |
-| Email | Resend over its HTTP API | Without `RESEND_API_KEY`, the delivery is stored as `not_configured` and staff see the invite link so they can share it themselves. No send is ever faked. |
+| Email | Resend over its HTTP API | Without `RESEND_API_KEY`, the delivery is stored as `not_configured` and staff see the sign-in details (link, username, temporary password) once, so they can share them themselves. No send is ever faked. |
 | Malware scan | An HTTP scanner at `MALWARE_SCAN_URL` | Without one, uploads are `not_scanned` and stay in quarantine until an admin releases them. |
 | Live updates | Polling (`usePoll`) | Supabase Realtime isn't used. |
 | Retention | Vercel cron `/api/cron/retention`, guarded by `CRON_SECRET` | After the firm's retention period, it purges the files and message bodies of closed deals and ends portal access. |
@@ -50,8 +50,8 @@ The tests are in `src/server/portal.test.ts`. "Browser" means checked in the loc
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Client invitations and welcome emails from editable templates | Verified (logic); Blocked (real send) | Test "full workflow" creates an invite with delivery `not_configured` and a link. Templates: `listTemplates` and `saveTemplate` in `portal-admin.ts`. A real send needs a Resend key and a verified domain. |
-| Invite expiry, resend and revoke | Verified (expiry, single use); Implemented (resend, revoke) | The test proves a token works only once. Expiry is a firm setting. Functions: `inviteApplicant`, `resendInvitation`, `revokeInvitation`. |
+| Client invitations: welcome email with the portal sign-in link, username and a temporary password, from editable templates | Verified (logic); Blocked (real send) | Test "full workflow" creates an invite with delivery `not_configured` and the sign-in details. Templates: `listTemplates` and `saveTemplate` in `portal-admin.ts`. A real send needs a Resend key and a verified domain. |
+| Temporary-password expiry, resend and revoke | Verified | Test "temporary passwords": an expired temporary password is refused, revoke removes the temporary sign-in, and inviting again issues a new one. Expiry is a firm setting. Functions: `inviteApplicant`, `resendInvitation`, `revokeInvitation`. |
 | Delivery status and failure tracking | Verified | Test "Resend webhooks": a signed `email.bounced` event marks the delivery bounced. Tampered or stale signatures are rejected. |
 | Document requests, one at a time or from a checklist | Verified | Test "full workflow" creates both kinds. |
 | Statuses: requested, uploaded, under review, accepted, replacement required with a reason | Verified | Test "full workflow": asking for a replacement without a reason fails; version 2 is then accepted. |
@@ -70,7 +70,7 @@ The tests are in `src/server/portal.test.ts`. "Browser" means checked in the loc
 | Requirement | Status | Evidence |
 |---|---|---|
 | Same app and branding | Verified | Browser: `/portal` uses the Keyway shell and type. |
-| Accept the invite and sign in | Verified | Test: a short password is rejected, and the token works once. Browser: accepting the invite signs the client in and lands on the application. |
+| First sign-in with the temporary password, then choose their own | Verified (logic) | Test: until it is changed, the client can only reach `/portal/welcome`; a short password or the temporary one is refused; afterwards the temporary password stops working. Not yet clicked through in a browser. |
 | See only authorized applications | Verified | Test "isolation": a stranger gets Forbidden, and access ends when portal access is turned off. Browser: an unknown application ID returns 404. |
 | Progress and next steps | Verified | Browser: the stage chips, update text and next action are shown. |
 | Upload from desktop or mobile | Verified (local); Unverified (Supabase) | Browser: a real upload through the signed URL to local storage ended as Uploaded, with the file in quarantine. The Supabase signed-upload PUT hasn't run yet. |
@@ -91,7 +91,7 @@ The tests are in `src/server/portal.test.ts`. "Browser" means checked in the loc
 | Storage policies | Implemented | The bucket is private and has no `public` or `authenticated` policies, so only the service role can reach it. |
 | Short-lived signed URLs | Implemented | Downloads: 60 seconds. Upload URLs: Supabase's default lifetime on Supabase, 15 minutes locally. |
 | Server-side authorization | Verified | Every action goes through `requireActor` or `requireClient` and then the scope checks above. The tests call the server functions directly. |
-| Secure invite acceptance and account linking | Verified | Tokens are random, stored as SHA-256 hashes, single-use and expiring. An invite to an email that already has a client account links to that account instead of creating a second one. |
+| Secure temporary passwords and account linking | Verified | 12 random characters (no look-alikes), stored only as a hash, expiring. An invite to an email that already signs in with another firm links to that account without resetting or revealing its password (test "temporary passwords"). |
 | Staff MFA | Verified | Test "TOTP": the RFC 6238 test vectors pass, and sign-in refuses a wrong code. |
 | File type and size checks, safe filenames, scan or quarantine | Verified | Test "uploads": `.exe` files and files over 10 MB are rejected. A file named `.pdf` that contains a Windows executable is rejected and deleted. Names are sanitized, and unscanned files are quarantined. |
 | Audit without document contents or secrets | Implemented | Audit rows record the actor, the action and IDs only. `auditDownload` and `auditClientDownload` log downloads. |
@@ -109,14 +109,14 @@ The tests are in `src/server/portal.test.ts`. "Browser" means checked in the loc
 | Supabase database | Created | `keyway-db` (Free plan, ca-central-1), created through the Vercel Marketplace Supabase integration. The integration adds `POSTGRES_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and related vars to the Vercel project, so nobody handles the keys. The app reads `DATABASE_URL`, or else `POSTGRES_URL` (`databaseUrl()` in `src/server/db.ts`). The earlier `keyway-dev` project is paused to stay within the Free plan's two-project limit. It was never used. |
 | Migrations and bucket | Automatic | `vercel-build` runs `scripts/db-migrate.ts` before `next build`, applying the migrations and creating the private bucket on every deploy. |
 | First admin | `/setup` | On an empty database the sign-in page sends you to `/setup`, which asks for `SETUP_CODE` (a Vercel env var; a copy is in the gitignored `SETUP-CODE.txt`). It creates the firm, a "Main Office" and the first org admin, and seeds the starter condition templates. It closes once a firm exists. Test "setup" covers it. |
-| Resend | Blocked | `RESEND_API_KEY`, a verified sending domain for `EMAIL_FROM`, and `RESEND_WEBHOOK_SECRET`. Until then, invites show a link for staff to share. |
+| Resend | Blocked | `RESEND_API_KEY`, a verified sending domain for `EMAIL_FROM`, and `RESEND_WEBHOOK_SECRET`. Until then, invites show the sign-in details for staff to share. |
 | Vercel project, env vars and deploy | Deployed with the CLI | `npx vercel@latest deploy --prod` from this folder. `.vercelignore` keeps `SETUP-CODE.txt`, `.data` and `.env*` out of the upload. |
 | Production verification | Partly verified (2026-10-29) | https://keyway-two.vercel.app. The build log shows "Migrations applied" and "Private bucket "client-documents" ready". `/` and `/login` redirect to `/setup`, which renders from the hosted database with no console errors. Not yet run live: completing setup, staff and client flows, and a Supabase Storage upload. The owner completed /setup and signed in; the home dashboard first crashed on the hosted database (a raw `Date` in a `sql` template, which drizzle's postgres-js driver passes through unserialized). Fixed in `openHosted` (dbc1d61, test `db.test.ts`); the owner confirmed the dashboard then loads. Staff and client flows beyond that are still unverified. |
 
 ## Unverified, and known limitations
 
 - **Staff UI not clicked through.** It needs a staff sign-in, which only the user does. The tests cover the server functions behind it.
-- **No client password reset.** Staff resend an invite instead.
+- **No self-service client password reset.** Staff send a new welcome email, which issues a new temporary password (not for a sign-in shared with another firm).
 - **Sign-in lockout lives in memory.** It resets on restart and isn't shared between Vercel instances.
 - **One session per browser.** Signing in as a client replaces a staff session in the same browser, and vice versa.
 - **Condition uploads hit Vercel's ~4.5 MB request-body limit.** These pre-date the portal and go through server actions. Portal uploads use signed URLs and aren't affected.

@@ -2,7 +2,7 @@
 // staff notes, assignment, the portal dashboard and notifications. Shared upload / notification helpers are used by
 // portal-client.ts too. Every staff read is limited by dealScope; every change is audited on the deal (entity "deal",
 // action "portal_*") in the same transaction, without document contents, message bodies or tokens.
-import { createHash, randomBytes } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, like, ne, or, sql } from "drizzle-orm";
 import { dealScope, Forbidden, type Actor } from "./access.ts";
 import { isAdmin, text } from "./admin.ts";
@@ -12,6 +12,7 @@ import { ValidationError } from "./contacts.ts";
 import type { Db, Tx } from "./db.ts";
 import { dealCode } from "./deal-status.ts";
 import { emailConfigured, sendEmail, type TemplateKind } from "./email.ts";
+import { hashPassword } from "./password.ts";
 import {
   auditLog, clientInvitations, clients, contacts, conversationReads, conversations, dealBorrowers, dealNotes, deals, documentChecklists,
   documentRequests, documentVersions, emailDeliveries, files, messageAttachments, messages, notifications, organizations, progressStages,
@@ -26,7 +27,6 @@ export type RequestStatus = (typeof requestStatus.enumValues)[number];
 // Links in emails. APP_URL in production; Vercel's production domain as a fallback.
 export const appUrl = () =>
   process.env.APP_URL ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000");
-export const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
 const staffHref = (dealId: string) => `/deal/${dealId}/clientPortal`;
 export const clientHref = (dealId: string) => `/portal/applications/${dealId}`;
 
@@ -161,23 +161,17 @@ export async function claimFiles(tx: Tx, who: Uploader, dealId: string, raw: unk
   return ids;
 }
 
-// ---- Invitations
+// ---- Invitations: a welcome email with the portal sign-in link, the client's username (their email) and a temporary
+// password, which they replace the first time they sign in (requireClient enforces it). Only its hash is stored.
 
-const newToken = () => randomBytes(32).toString("base64url");
-const inviteLink = (token: string) => `${appUrl()}/portal/accept?token=${token}`;
+const SAFE = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"; // no 0/O, 1/l/I to misread
+export const tempPassword = () => Array.from({ length: 12 }, () => SAFE[randomInt(SAFE.length)]).join("");
+const longDate = (d: Date) => d.toLocaleDateString("en-CA", { dateStyle: "long" });
 
-async function sendInvite(db: Db, inv: { id: string; organizationId: string; email: string; expiresAt: Date; contactId: string }, token: string) {
-  const [c] = await db.select({ first: contacts.firstName }).from(contacts).where(eq(contacts.id, inv.contactId));
-  const link = inviteLink(token);
-  const delivery = await sendEmail(db, {
-    organizationId: inv.organizationId, kind: "invitation", to: inv.email, invitationId: inv.id,
-    vars: { name: c.first, link, expires: inv.expiresAt.toLocaleDateString("en-CA", { dateStyle: "long" }) },
-  });
-  await db.update(clientInvitations).set({ sentCount: sql`${clientInvitations.sentCount} + 1`, lastSentAt: new Date() }).where(eq(clientInvitations.id, inv.id));
-  // The link is only handed back when the email didn't go out, so staff can pass it on another way. It is never stored.
-  return { status: delivery.status, error: delivery.error, link: delivery.status === "sent" ? null : link };
-}
-
+// A new sign-in, or one used only at this firm, gets a fresh temporary password (so inviting again is also how a client who
+// forgot theirs gets back in). A sign-in the same email already has at another firm is linked as it is and never reset or
+// shown here, so one firm's staff can't take over an account that also sees another firm's files.
+// ponytail: that also means a firm can't reset a shared sign-in; the client asks the firm that issued it.
 export async function inviteApplicant(db: Db, actor: Actor, dealId: string, contactId: string) {
   const deal = await staffDeal(db, actor, dealId);
   const [b] = UUID.test(contactId)
@@ -187,22 +181,43 @@ export async function inviteApplicant(db: Db, actor: Actor, dealId: string, cont
   const email = b.c.email?.trim().toLowerCase() ?? "";
   if (!EMAIL.test(email)) throw new ValidationError("Add a valid email address to the applicant's contact record first");
   const [org] = await db.select({ days: organizations.inviteExpiryDays }).from(organizations).where(eq(organizations.id, deal.organizationId));
-  const token = newToken();
-  const inv = await db.transaction(async (tx) => {
+  const expiresAt = new Date(Date.now() + org.days * 86_400_000);
+  const password = tempPassword();
+  const passwordHash = await hashPassword(password);
+  const { inv, shared } = await db.transaction(async (tx) => {
     let [client] = await tx.select().from(clients).where(eq(clients.contactId, contactId));
     if (!client) [client] = await tx.insert(clients).values({ organizationId: deal.organizationId, contactId, email }).returning();
-    else if (client.disabledAt) await tx.update(clients).set({ disabledAt: null }).where(eq(clients.id, client.id));
+    const [other] = client.accountId ? [] : await tx.select().from(clients)
+      .where(and(eq(clients.email, email), isNotNull(clients.accountId), isNull(clients.disabledAt), ne(clients.organizationId, deal.organizationId))).limit(1);
+    const existing = client.accountId ? client : other;
+    const firms = existing ? await tx.select({ org: clients.organizationId }).from(clients).where(eq(clients.accountId, existing.accountId!)) : [];
+    const shared = firms.some((f) => f.org !== deal.organizationId);
+    const login = shared
+      ? { accountId: existing!.accountId, passwordHash: existing!.passwordHash, passwordExpiresAt: existing!.passwordExpiresAt }
+      : { accountId: existing?.accountId ?? randomUUID(), passwordHash, passwordExpiresAt: expiresAt };
+    await tx.update(clients).set({ ...login, email, disabledAt: null }).where(eq(clients.id, client.id));
+    await tx.update(dealBorrowers).set({ portalAccess: true }).where(and(eq(dealBorrowers.dealId, dealId), eq(dealBorrowers.contactId, contactId)));
     // A new invitation replaces any still-pending one for the same person and deal.
     await tx.update(clientInvitations).set({ status: "revoked" })
       .where(and(eq(clientInvitations.dealId, dealId), eq(clientInvitations.contactId, contactId), eq(clientInvitations.status, "pending")));
-    const [row] = await tx.insert(clientInvitations).values({
-      organizationId: deal.organizationId, dealId, contactId, clientId: client.id, email, tokenHash: hashToken(token),
-      expiresAt: new Date(Date.now() + org.days * 86_400_000), createdBy: actor.id,
+    const [inv] = await tx.insert(clientInvitations).values({
+      organizationId: deal.organizationId, dealId, contactId, clientId: client.id, email, expiresAt, createdBy: actor.id,
+      ...(shared && { status: "accepted" as const, acceptedAt: new Date() }),
     }).returning();
-    await portalAudit(tx, actor, dealId, "invite", { invitationId: row.id, contactId });
-    return row;
+    await portalAudit(tx, actor, dealId, "invite", { invitationId: inv.id, contactId, linked: shared });
+    return { inv, shared };
   });
-  return { invitationId: inv.id, ...(await sendInvite(db, inv, token)) };
+  const link = `${appUrl()}/portal/login`;
+  const delivery = await sendEmail(db, {
+    organizationId: deal.organizationId, kind: shared ? "portal_added" : "invitation", to: email, invitationId: inv.id,
+    vars: { name: b.c.firstName, link, username: email, ...(!shared && { password, expires: longDate(expiresAt) }) },
+  });
+  await db.update(clientInvitations).set({ sentCount: 1, lastSentAt: new Date() }).where(eq(clientInvitations.id, inv.id));
+  // The sign-in details are handed back only when the email didn't go out, so staff can pass them on another way. Never stored.
+  return {
+    invitationId: inv.id, status: delivery.status, error: delivery.error,
+    login: delivery.status === "sent" ? null : { link, username: email, password: shared ? null : password, expires: shared ? null : longDate(expiresAt) },
+  };
 }
 
 async function staffInvitation(db: Db, actor: Actor, invitationId: string) {
@@ -213,24 +228,21 @@ async function staffInvitation(db: Db, actor: Actor, invitationId: string) {
   return row.i;
 }
 
-// Resending issues a fresh link (only hashes are stored) with a fresh expiry; the old link stops working.
+// Resending issues a new temporary password with a new expiry; the old one stops working.
 export async function resendInvitation(db: Db, actor: Actor, invitationId: string) {
   const inv = await staffInvitation(db, actor, invitationId);
   if (inv.status !== "pending") throw new ValidationError("Only a pending invitation can be resent");
-  const [org] = await db.select({ days: organizations.inviteExpiryDays }).from(organizations).where(eq(organizations.id, inv.organizationId));
-  const token = newToken();
-  const [row] = await db.transaction(async (tx) => {
-    await portalAudit(tx, actor, inv.dealId, "invite_resend", { invitationId });
-    return tx.update(clientInvitations).set({ tokenHash: hashToken(token), expiresAt: new Date(Date.now() + org.days * 86_400_000) }).where(eq(clientInvitations.id, invitationId)).returning();
-  });
-  return sendInvite(db, row, token);
+  return inviteApplicant(db, actor, inv.dealId, inv.contactId);
 }
 
+// Before the client has chosen their own password: the temporary sign-in is removed and this deal closed to them.
 export async function revokeInvitation(db: Db, actor: Actor, invitationId: string) {
   const inv = await staffInvitation(db, actor, invitationId);
   if (inv.status !== "pending") throw new ValidationError("Only a pending invitation can be revoked");
   await db.transaction(async (tx) => {
     await tx.update(clientInvitations).set({ status: "revoked" }).where(eq(clientInvitations.id, invitationId));
+    await tx.update(dealBorrowers).set({ portalAccess: false }).where(and(eq(dealBorrowers.dealId, inv.dealId), eq(dealBorrowers.contactId, inv.contactId)));
+    await tx.update(clients).set({ accountId: null, passwordHash: null, passwordExpiresAt: null }).where(and(eq(clients.contactId, inv.contactId), isNotNull(clients.passwordExpiresAt)));
     await portalAudit(tx, actor, inv.dealId, "invite_revoke", { invitationId });
   });
 }
@@ -239,7 +251,7 @@ export async function revokeInvitation(db: Db, actor: Actor, invitationId: strin
 export async function setPortalAccess(db: Db, actor: Actor, dealId: string, contactId: string, on: boolean) {
   await staffDeal(db, actor, dealId);
   const [c] = UUID.test(contactId) ? await db.select().from(clients).where(eq(clients.contactId, contactId)) : [];
-  if (on && !c?.accountId) throw new ValidationError("This applicant hasn't accepted an invitation yet. Send one instead.");
+  if (on && !c?.accountId) throw new ValidationError("This applicant doesn't have a portal sign-in yet. Send an invitation instead.");
   await db.transaction(async (tx) => {
     const r = await tx.update(dealBorrowers).set({ portalAccess: on }).where(and(eq(dealBorrowers.dealId, dealId), eq(dealBorrowers.contactId, contactId))).returning();
     if (!r.length) throw new ValidationError("That person isn't an applicant on this deal");
