@@ -86,7 +86,7 @@ The tests are in `src/server/portal.test.ts`. "Browser" means checked in the loc
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Supabase Postgres and private storage | Implemented; Blocked (no project yet) | Uses `DATABASE_URL`, `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. `npm run db:migrate` also creates the private bucket. |
+| Supabase Postgres and private storage | Implemented; Blocked (dev project created, not migrated) | Uses `DATABASE_URL`, `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. `npm run db:migrate` also creates the private bucket. |
 | RLS on all tables | Verified | Test "every table has row-level security on" queries `pg_class` and finds no table without it. |
 | Storage policies | Implemented | The bucket is private and has no `public` or `authenticated` policies, so only the service role can reach it. |
 | Short-lived signed URLs | Implemented | Downloads: 60 seconds. Upload URLs: Supabase's default lifetime on Supabase, 15 minutes locally. |
@@ -105,10 +105,11 @@ The tests are in `src/server/portal.test.ts`. "Browser" means checked in the loc
 |---|---|---|
 | Feature branch | Done | `feature/client-portal`. |
 | `npm run check` | Verified | Lint, typecheck, 63/63 tests and the production build all pass. |
-| Push to the new private GitHub repo | Blocked | The repo URL. |
-| Supabase dev and prod projects | Blocked | URL, service-role key and `DATABASE_URL` in `.env.local` (not in chat), and `npx supabase login`. |
+| Push to the new private GitHub repo | Blocked | The repo URL (create it on GitHub, private, no README). `gh` isn't installed here. |
+| Supabase dev project | Created; Blocked (not migrated) | `keyway-dev`, ref `jaccnlkobpywpuhufzaw`, ca-central-1, Free plan. `SUPABASE_URL` and a commented `DATABASE_URL` template are in `.env.local`. Needed: the database password (Project Settings → Database → Reset) in `DATABASE_URL`, and the `service_role` key in `SUPABASE_SERVICE_ROLE_KEY`. Then `npm run db:migrate`. |
+| Supabase prod project | Blocked | The Free plan allows two active projects, and both are in use. Upgrade, or pause a project. |
 | Resend | Blocked | `RESEND_API_KEY`, a verified sending domain for `EMAIL_FROM`, and `RESEND_WEBHOOK_SECRET`. |
-| Vercel project, env vars and deploy | Blocked | `vercel login`. |
+| Vercel project, env vars and deploy | Linked; Blocked (deploy) | Project `keyway` is linked and has no env vars yet. The app refuses to start on Vercel without `DATABASE_URL` (`src/server/db.ts`), so deploy after the Supabase step. On Vercel, use the transaction pooler (port 6543). |
 | Production verification | Blocked | Everything above. |
 
 ## Unverified, and known limitations
