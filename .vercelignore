@@ -1,0 +1,4 @@
+# Kept off Vercel uploads (vercel deploy from this folder)
+SETUP-CODE.txt
+.data
+.env*

@@ -53,3 +53,6 @@ temp/
 
 .env*
 !.env.example
+
+# One-time code for /setup on a fresh deployment
+SETUP-CODE.txt

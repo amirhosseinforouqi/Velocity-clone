@@ -86,7 +86,7 @@ The tests are in `src/server/portal.test.ts`. "Browser" means checked in the loc
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Supabase Postgres and private storage | Implemented; Blocked (dev project created, not migrated) | Uses `DATABASE_URL`, `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. `npm run db:migrate` also creates the private bucket. |
+| Supabase Postgres and private storage | Implemented; see Deployment for the live check | Uses `DATABASE_URL`, `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. `npm run db:migrate` also creates the private bucket. |
 | RLS on all tables | Verified | Test "every table has row-level security on" queries `pg_class` and finds no table without it. |
 | Storage policies | Implemented | The bucket is private and has no `public` or `authenticated` policies, so only the service role can reach it. |
 | Short-lived signed URLs | Implemented | Downloads: 60 seconds. Upload URLs: Supabase's default lifetime on Supabase, 15 minutes locally. |
@@ -104,13 +104,14 @@ The tests are in `src/server/portal.test.ts`. "Browser" means checked in the loc
 | Step | Status | What is needed |
 |---|---|---|
 | Feature branch | Done | `feature/client-portal`. |
-| `npm run check` | Verified | Lint, typecheck, 63/63 tests and the production build all pass. |
+| `npm run check` | Verified | Lint, typecheck, 64/64 tests and the production build all pass. |
 | Push to the new private GitHub repo | Blocked | The repo URL (create it on GitHub, private, no README). `gh` isn't installed here. |
-| Supabase dev project | Created; Blocked (not migrated) | `keyway-dev`, ref `jaccnlkobpywpuhufzaw`, ca-central-1, Free plan. `SUPABASE_URL` and a commented `DATABASE_URL` template are in `.env.local`. Needed: the database password (Project Settings → Database → Reset) in `DATABASE_URL`, and the `service_role` key in `SUPABASE_SERVICE_ROLE_KEY`. Then `npm run db:migrate`. |
-| Supabase prod project | Blocked | The Free plan allows two active projects, and both are in use. Upgrade, or pause a project. |
-| Resend | Blocked | `RESEND_API_KEY`, a verified sending domain for `EMAIL_FROM`, and `RESEND_WEBHOOK_SECRET`. |
-| Vercel project, env vars and deploy | Linked; Blocked (deploy) | Project `keyway` is linked and has no env vars yet. The app refuses to start on Vercel without `DATABASE_URL` (`src/server/db.ts`), so deploy after the Supabase step. On Vercel, use the transaction pooler (port 6543). |
-| Production verification | Blocked | Everything above. |
+| Supabase database | Created | `keyway-db` (Free plan, ca-central-1), created through the Vercel Marketplace Supabase integration. The integration adds `POSTGRES_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and related vars to the Vercel project, so nobody handles the keys. The app reads `DATABASE_URL`, or else `POSTGRES_URL` (`databaseUrl()` in `src/server/db.ts`). The earlier `keyway-dev` project is paused to stay within the Free plan's two-project limit. It was never used. |
+| Migrations and bucket | Automatic | `vercel-build` runs `scripts/db-migrate.ts` before `next build`, applying the migrations and creating the private bucket on every deploy. |
+| First admin | `/setup` | On an empty database the sign-in page sends you to `/setup`, which asks for `SETUP_CODE` (a Vercel env var; a copy is in the gitignored `SETUP-CODE.txt`). It creates the firm, a "Main Office" and the first org admin, and seeds the starter condition templates. It closes once a firm exists. Test "setup" covers it. |
+| Resend | Blocked | `RESEND_API_KEY`, a verified sending domain for `EMAIL_FROM`, and `RESEND_WEBHOOK_SECRET`. Until then, invites show a link for staff to share. |
+| Vercel project, env vars and deploy | Deployed with the CLI | `npx vercel@latest deploy --prod` from this folder. `.vercelignore` keeps `SETUP-CODE.txt`, `.data` and `.env*` out of the upload. |
+| Production verification | Partly verified (2026-10-29) | https://keyway-two.vercel.app. The build log shows "Migrations applied" and "Private bucket "client-documents" ready". `/` and `/login` redirect to `/setup`, which renders from the hosted database with no console errors. Not yet run live: completing setup, staff and client flows, and a Supabase Storage upload. |
 
 ## Unverified, and known limitations
 
