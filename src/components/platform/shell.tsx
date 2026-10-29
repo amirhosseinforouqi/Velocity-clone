@@ -34,11 +34,12 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { topBarAction } from "@/app/deal/actions";
+import { readNotificationsAction, topBarPortalAction } from "@/app/deal/portal-actions";
 import { logout } from "@/app/login/actions";
 import { cn } from "@/lib/utils";
 import { dealTabs } from "./deal-sections";
 import { dealCode } from "@/server/deal-status";
-import { placeholderMessages, placeholderNewApps, placeholderRecentDeals } from "./placeholder-data";
+import { placeholderNewApps, placeholderRecentDeals } from "./placeholder-data";
 import { CalculatorModal, calculators, type CalcKind } from "./calculators";
 import { AddModal, type AddKind } from "./add";
 
@@ -113,7 +114,8 @@ const menuItems: MenuItem[] = [
   { label: "Admin", icon: Shield, expand: true, children: [
     { label: "Offices", href: "/admin/office/list" }, { label: "Users", href: "/admin/users" }, { label: "User Matrix", href: "/admin/user-matrix" },
     { label: "Lenders", href: "/admin/lenders" }, { label: "Lender Matrix", href: "/admin/lender-matrix" }, { label: "Logs", href: "/admin/logs" }, { label: "Condition Library", href: "/admin/conditions" }, { label: "Compliance", href: "/compliance/dashboard" },
-    { label: "Organization", href: "/admin/organization/edit" },
+    { label: "Organization", href: "/admin/organization/edit" }, { label: "Client Portal", href: "/admin/client-portal" }, { label: "Progress Stages", href: "/admin/stages" },
+    { label: "Document Checklists", href: "/admin/checklists" }, { label: "Email Templates", href: "/admin/email-templates" },
   ] },
   { label: "Support", icon: LifeBuoy, expand: true, children: [{ label: "Email Domains", href: "/support/email-configuration/domains" }, { label: "Webhooks", href: "/support/webhook/list" }] },
 ];
@@ -132,6 +134,7 @@ const helpLinks: [string, string][] = [["Contact support", "mailto:support@examp
 const meLinks: [string, string][] = [
   ["Settings", "/user/settings"],
   ["Profile", "/user/profile"],
+  ["Two-Step Verification", "/user/mfa"],
   ["Compliance Settings", "/account/settings/compliance"],
   ["Workflows", "/workflows"],
 ];
@@ -153,7 +156,7 @@ function Feed({ header, items, all, href, mark, onMark }: { header: string; item
         ))}
       </ul>
       <div className="flex justify-between px-3 py-2">
-        <Link href={href} className="text-[#428bca] hover:underline">{all}</Link>
+        {all ? <Link href={href} className="text-[#428bca] hover:underline">{all}</Link> : <span />}
         {mark && <button onClick={onMark} className="text-[#428bca] hover:underline">{mark}</button>}
       </div>
     </>
@@ -170,11 +173,20 @@ function TopBar() {
   const toggle = (m: Menu) => setOpen(open === m ? null : m);
   const icon = "size-[18px] fill-[#666] stroke-[#666]";
   const count = (m: Menu, n: number) => (seen.includes(m) ? 0 : n);
-  const unreadMsgs = placeholderMessages.filter((m) => !m.read);
+  // Unread client portal messages and staff notifications, re-read on navigation and every 30 seconds.
+  const [portal, setPortal] = useState<{ messages: { dealId: string; code: string; count: number }[]; notifications: { id: string; title: string; href: string; at: Date; read: boolean }[]; unreadNotifications: number }>({ messages: [], notifications: [], unreadNotifications: 0 });
   // ponytail: refetched on every navigation; move to a layout-level context if it shows up in profiles.
   const path = usePathname();
   const [{ tasks, reminders }, setBar] = useState<Awaited<ReturnType<typeof topBarAction>>>({ tasks: [], reminders: [] });
   useEffect(() => { topBarAction().then(setBar, () => {}); }, [path]);
+  useEffect(() => {
+    const load = () => topBarPortalAction().then((r) => r.data && setPortal(r.data), () => {});
+    load();
+    const t = setInterval(() => document.visibilityState === "visible" && load(), 30000);
+    return () => clearInterval(t);
+  }, [path]);
+  const unreadMsgs = portal.messages.reduce((n, m) => n + m.count, 0);
+  const readAll = () => { setSeen([...seen, "rem"]); setPortal({ ...portal, unreadNotifications: 0 }); void readNotificationsAction(); };
   return (
     <nav className="fixed inset-x-0 top-0 z-30 flex h-[60px] items-center border-b border-[#eee] bg-white">
       {open && <div className="fixed inset-0 z-30" onClick={() => setOpen(null)} />}
@@ -227,15 +239,16 @@ function TopBar() {
           </Drop>
         </span>
         <span className="relative hidden sm:block">
-          <button onClick={() => toggle("msgs")} aria-label="Messages" className="relative block"><Mail className="size-[19px] fill-[#666] stroke-white" /><Badge n={count("msgs", unreadMsgs.length)} /></button>
+          <button onClick={() => toggle("msgs")} aria-label="Client messages" className="relative block"><Mail className="size-[19px] fill-[#666] stroke-white" /><Badge n={unreadMsgs} /></button>
           <Drop open={open === "msgs"} wide>
-            <Feed header={`You have ${count("msgs", unreadMsgs.length)} unread messages`} items={unreadMsgs.map((m) => ({ key: m.id, text: m.title, sub: m.from, href: "/messages" }))} all="See all messages" href="/messages" mark="Mark all as read" onMark={() => setSeen([...seen, "msgs"])} />
+            <Feed header={`You have ${unreadMsgs} unread client messages`} items={portal.messages.map((m) => ({ key: m.dealId, text: `${m.count} unread`, sub: m.code, href: `/deal/${m.dealId}/clientPortal` }))} all="See all messages" href="/messages" />
           </Drop>
         </span>
         <span className="relative hidden sm:block">
-          <button onClick={() => toggle("rem")} aria-label="Reminders" className="relative block"><Bell className={icon} /><Badge n={count("rem", reminders.length)} /></button>
+          <button onClick={() => toggle("rem")} aria-label="Notifications and reminders" className="relative block"><Bell className={icon} /><Badge n={count("rem", reminders.length) + portal.unreadNotifications} /></button>
           <Drop open={open === "rem"} wide>
-            <Feed header={`You have ${count("rem", reminders.length)} reminders`} items={reminders.map((r) => ({ key: r.id, text: `${r.level}: ${r.firstName ?? ""} ${r.lastName ?? ""}`, sub: r.closingDate ? `Closing ${r.closingDate}` : "", href: `/deal/${r.id}` }))} all="See all reminders" href="/deals/reminders" mark="Mark all as read" onMark={() => setSeen([...seen, "rem"])} />
+            {portal.notifications.length > 0 && <Feed header={`You have ${portal.unreadNotifications} new notifications`} items={portal.notifications.map((n) => ({ key: n.id, text: `${n.read ? "" : "• "}${n.title}`, sub: new Date(n.at).toLocaleString("en-CA", { dateStyle: "medium", timeStyle: "short" }), href: n.href }))} all="" href="" mark="Mark all as read" onMark={readAll} />}
+            <Feed header={`You have ${count("rem", reminders.length)} reminders`} items={reminders.map((r) => ({ key: r.id, text: `${r.level}: ${r.firstName ?? ""} ${r.lastName ?? ""}`, sub: r.closingDate ? `Closing ${r.closingDate}` : "", href: `/deal/${r.id}` }))} all="See all reminders" href="/deals/reminders" mark="Mark all as read" onMark={readAll} />
           </Drop>
         </span>
         <span className="relative">

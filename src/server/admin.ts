@@ -10,7 +10,7 @@ import { ValidationError } from "./contacts.ts";
 import type { Db } from "./db.ts";
 import type { DealStatus } from "./deal-status.ts";
 import { hashPassword } from "./password.ts";
-import { auditLog, conditionTemplates, consentTemplates, contacts, deals, offices, organizations, role, tasks, users, type OrgSettings } from "./schema.ts";
+import { auditLog, clients, conditionTemplates, consentTemplates, contacts, deals, offices, organizations, role, tasks, users, type OrgSettings } from "./schema.ts";
 
 const UUID = /^[0-9a-f-]{36}$/i;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -310,8 +310,8 @@ export async function listAudit(db: Db, actor: Actor, opts: { entity?: string; p
   const page = Math.max(1, Math.floor(opts.page ?? 1) || 1);
   const [{ total }] = await db.select({ total: count() }).from(auditLog).where(where);
   const rows = await db
-    .select({ id: auditLog.id, at: auditLog.at, entity: auditLog.entity, entityId: auditLog.entityId, action: auditLog.action, actor: users.name, before: auditLog.before, after: auditLog.after })
-    .from(auditLog).innerJoin(users, eq(users.id, auditLog.actorId))
+    .select({ id: auditLog.id, at: auditLog.at, entity: auditLog.entity, entityId: auditLog.entityId, action: auditLog.action, actor: sql<string>`coalesce(${users.name}, ${clients.email} || ' (client)', '')`, before: auditLog.before, after: auditLog.after })
+    .from(auditLog).leftJoin(users, eq(users.id, auditLog.actorId)).leftJoin(clients, eq(clients.id, auditLog.actorClientId))
     .where(where).orderBy(desc(auditLog.at), desc(auditLog.id)).limit(LOG_PAGE).offset((page - 1) * LOG_PAGE);
   const entities = (await db.selectDistinct({ e: auditLog.entity }).from(auditLog).where(eq(auditLog.organizationId, actor.organizationId)).orderBy(asc(auditLog.entity))).map((r) => r.e);
   return { rows, total, page, entities };

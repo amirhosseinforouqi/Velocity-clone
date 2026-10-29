@@ -8,6 +8,15 @@ const nextConfig: NextConfig = {
   // The local database and uploaded documents are data, never part of the deployed build.
   outputFileTracingExcludes: { "/*": ["./.data/**/*"] },
   experimental: { serverActions: { bodySizeLimit: "11mb" }, proxyClientMaxBodySize: "11mb" },
+  // same-origin: invitation links carry a one-time token, so the full URL never goes to another site.
+  headers: async () => [{
+    source: "/:path*",
+    headers: [
+      { key: "Referrer-Policy", value: "same-origin" },
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "X-Frame-Options", value: "DENY" },
+    ],
+  }],
 };
 
 export default nextConfig;

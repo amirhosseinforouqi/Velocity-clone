@@ -10,6 +10,10 @@ export const organizations = pgTable("organizations", {
   id: id(),
   name: text("name").notNull(),
   settings: jsonb("settings").$type<Partial<OrgSettings>>().notNull().default({}),
+  // Client portal settings (portal-admin.ts). Retention null = keep everything. require_staff_mfa: staff must enrol TOTP.
+  inviteExpiryDays: integer("invite_expiry_days").notNull().default(7),
+  retentionDays: integer("retention_days"),
+  requireStaffMfa: boolean("require_staff_mfa").notNull().default(false),
   createdAt: createdAt(),
 });
 
@@ -31,6 +35,9 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
   passwordHash: text("password_hash").notNull(),
+  // TOTP MFA (mfa.ts). The secret is AES-GCM encrypted with AUTH_SECRET; enabled once the first code is confirmed.
+  totpSecret: text("totp_secret"),
+  mfaEnabledAt: timestamp("mfa_enabled_at", { withTimezone: true }),
   role: role("role").notNull(),
   // Licence, profile and income fields from the Edit User screen; whitelisted keys only (admin-fields.ts).
   details: jsonb("details").$type<Record<string, string>>().notNull().default({}),
@@ -70,7 +77,9 @@ export const contactConsents = pgTable("contact_consents", {
 export const auditLog = pgTable("audit_log", {
   id: id(),
   organizationId: uuid("organization_id").notNull().references(() => organizations.id),
-  actorId: uuid("actor_id").notNull().references(() => users.id),
+  // Exactly one of the two: a staff member or a portal client.
+  actorId: uuid("actor_id").references(() => users.id),
+  actorClientId: uuid("actor_client_id").references(() => clients.id),
   entity: text("entity").notNull(),
   entityId: uuid("entity_id").notNull(),
   action: text("action").notNull(),
@@ -109,6 +118,10 @@ export const deals = pgTable("deals", {
   // Set by compliance reviewers (compliance.ts). A locked package freezes the conditions and documents.
   complianceStatus: complianceStatus("compliance_status").notNull().default("in_progress"),
   packageLockedAt: timestamp("package_locked_at", { withTimezone: true }),
+  // The team member working the file besides the agent; sees it like the agent does (access.ts).
+  assigneeId: uuid("assignee_id").references(() => users.id),
+  // The client-facing progress stage; separate from the internal status above.
+  clientStageId: uuid("client_stage_id").references(() => progressStages.id),
   createdAt: createdAt(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -118,6 +131,8 @@ export const dealBorrowers = pgTable("deal_borrowers", {
   dealId: uuid("deal_id").notNull().references(() => deals.id),
   contactId: uuid("contact_id").notNull().references(() => contacts.id),
   position: integer("position").notNull(), // 0 = primary
+  // Granted when this applicant accepts a portal invitation for this deal; revoking it closes their portal view.
+  portalAccess: boolean("portal_access").notNull().default(false),
 }, (t) => [primaryKey({ columns: [t.dealId, t.contactId] })]);
 
 // One row per status change, never updated.
@@ -266,3 +281,199 @@ export const amlAssessments = pgTable("aml_assessments", {
   assessedBy: uuid("assessed_by").notNull().references(() => users.id),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.dealId, t.contactId] })]);
+
+// ---- Client portal (portal.ts and friends). Visibility rules: docs/client-portal.md and the RLS migration.
+
+// One per firm and person. A person who is a client of two firms has two rows sharing one account_id (their sign-in);
+// the password hash is kept the same on all of them. Both are null until the first invitation is accepted.
+export const clients = pgTable("clients", {
+  id: id(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+  contactId: uuid("contact_id").notNull().unique().references(() => contacts.id),
+  email: text("email").notNull(),
+  accountId: uuid("account_id"),
+  passwordHash: text("password_hash"),
+  emailNotifications: boolean("email_notifications").notNull().default(true),
+  lastSignInAt: timestamp("last_sign_in_at", { withTimezone: true }),
+  disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  createdAt: createdAt(),
+}, (t) => [uniqueIndex("clients_org_account_uq").on(t.organizationId, t.accountId), index("clients_email_idx").on(t.email), index("clients_account_idx").on(t.accountId)]);
+
+export const invitationStatus = pgEnum("invitation_status", ["pending", "accepted", "revoked"]);
+
+// Only the SHA-256 of the token is stored; the link is emailed and shown once. Expiry is derived from expires_at.
+export const clientInvitations = pgTable("client_invitations", {
+  id: id(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+  dealId: uuid("deal_id").notNull().references(() => deals.id),
+  contactId: uuid("contact_id").notNull().references(() => contacts.id),
+  clientId: uuid("client_id").references(() => clients.id),
+  email: text("email").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  status: invitationStatus("status").notNull().default("pending"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  sentCount: integer("sent_count").notNull().default(0),
+  lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  createdBy: uuid("created_by").notNull().references(() => users.id),
+  createdAt: createdAt(),
+}, (t) => [index("client_invitations_deal_idx").on(t.dealId)]);
+
+// A firm's override of a built-in template (email.ts).
+export const emailTemplates = pgTable("email_templates", {
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+  kind: text("kind").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  updatedBy: uuid("updated_by").notNull().references(() => users.id),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.organizationId, t.kind] })]);
+
+export const deliveryStatus = pgEnum("delivery_status", ["not_configured", "sent", "failed", "delivered", "bounced", "complained"]);
+
+// Every attempted email. Bodies are not stored, only who, what kind, and what happened.
+export const emailDeliveries = pgTable("email_deliveries", {
+  id: id(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+  kind: text("kind").notNull(),
+  toEmail: text("to_email").notNull(),
+  status: deliveryStatus("status").notNull(),
+  providerId: text("provider_id").unique(),
+  error: text("error"),
+  invitationId: uuid("invitation_id").references(() => clientInvitations.id),
+  createdAt: createdAt(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("email_deliveries_invitation_idx").on(t.invitationId)]);
+
+export const scanStatus = pgEnum("scan_status", ["pending", "not_scanned", "clean", "infected", "released"]);
+
+// Every uploaded file (document versions and message attachments). The id is the storage key.
+// pending = upload URL issued, bytes not checked yet. Downloads need clean or released (staff release from quarantine).
+export const files = pgTable("files", {
+  id: id(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+  dealId: uuid("deal_id").notNull().references(() => deals.id),
+  fileName: text("file_name").notNull(),
+  contentType: text("content_type"),
+  size: integer("size"),
+  scanStatus: scanStatus("scan_status").notNull().default("pending"),
+  uploadedByUserId: uuid("uploaded_by_user_id").references(() => users.id),
+  uploadedByClientId: uuid("uploaded_by_client_id").references(() => clients.id),
+  releasedBy: uuid("released_by").references(() => users.id),
+  createdAt: createdAt(),
+  purgedAt: timestamp("purged_at", { withTimezone: true }),
+}, (t) => [index("files_deal_idx").on(t.dealId)]);
+
+export type ChecklistItem = { name: string; category: string; description: string };
+
+export const documentChecklists = pgTable("document_checklists", {
+  id: id(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+  name: text("name").notNull(),
+  items: jsonb("items").$type<ChecklistItem[]>().notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: createdAt(),
+}, (t) => [uniqueIndex("document_checklists_name_uq").on(t.organizationId, t.name)]);
+
+export const requestStatus = pgEnum("request_status", ["requested", "uploaded", "under_review", "accepted", "replacement_required"]);
+
+// applicant_contact_id null = shared with every applicant on the deal; set = only that applicant (and staff) see it.
+export const documentRequests = pgTable("document_requests", {
+  id: id(),
+  dealId: uuid("deal_id").notNull().references(() => deals.id),
+  applicantContactId: uuid("applicant_contact_id").references(() => contacts.id),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  description: text("description").notNull().default(""),
+  status: requestStatus("status").notNull().default("requested"),
+  replacementReason: text("replacement_reason"),
+  dueDate: date("due_date"),
+  lastRemindedAt: timestamp("last_reminded_at", { withTimezone: true }),
+  createdBy: uuid("created_by").notNull().references(() => users.id),
+  createdAt: createdAt(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => [index("document_requests_deal_idx").on(t.dealId)]);
+
+export const documentVersions = pgTable("document_versions", {
+  id: id(),
+  requestId: uuid("request_id").notNull().references(() => documentRequests.id),
+  fileId: uuid("file_id").notNull().unique().references(() => files.id),
+  version: integer("version").notNull(),
+  createdAt: createdAt(),
+}, (t) => [uniqueIndex("document_versions_uq").on(t.requestId, t.version)]);
+
+// The firm's configurable client-facing stages, in order.
+export const progressStages = pgTable("progress_stages", {
+  id: id(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+  label: text("label").notNull(),
+  clientDescription: text("client_description").notNull().default(""),
+  nextAction: text("next_action").notNull().default(""),
+  position: integer("position").notNull(),
+  active: boolean("active").notNull().default(true),
+}, (t) => [index("progress_stages_org_idx").on(t.organizationId, t.position)]);
+
+// Published to the client; never edited.
+export const progressUpdates = pgTable("progress_updates", {
+  id: id(),
+  dealId: uuid("deal_id").notNull().references(() => deals.id),
+  stageId: uuid("stage_id").notNull().references(() => progressStages.id),
+  message: text("message").notNull().default(""),
+  authorId: uuid("author_id").notNull().references(() => users.id),
+  publishedAt: createdAt(),
+}, (t) => [index("progress_updates_deal_idx").on(t.dealId)]);
+
+// applicant_contact_id null = every applicant with access; set = that applicant only. Staff who can see the deal can always read.
+export const conversations = pgTable("conversations", {
+  id: id(),
+  dealId: uuid("deal_id").notNull().references(() => deals.id),
+  applicantContactId: uuid("applicant_contact_id").references(() => contacts.id),
+  subject: text("subject").notNull(),
+  createdAt: createdAt(),
+}, (t) => [index("conversations_deal_idx").on(t.dealId)]);
+
+export const messages = pgTable("messages", {
+  id: id(),
+  conversationId: uuid("conversation_id").notNull().references(() => conversations.id),
+  authorUserId: uuid("author_user_id").references(() => users.id),
+  authorClientId: uuid("author_client_id").references(() => clients.id),
+  body: text("body").notNull(),
+  createdAt: createdAt(),
+  purgedAt: timestamp("purged_at", { withTimezone: true }),
+}, (t) => [index("messages_conversation_idx").on(t.conversationId, t.createdAt)]);
+
+export const messageAttachments = pgTable("message_attachments", {
+  messageId: uuid("message_id").notNull().references(() => messages.id),
+  fileId: uuid("file_id").notNull().unique().references(() => files.id),
+}, (t) => [primaryKey({ columns: [t.messageId, t.fileId] })]);
+
+// reader = "u:<user id>" or "c:<client id>".
+export const conversationReads = pgTable("conversation_reads", {
+  conversationId: uuid("conversation_id").notNull().references(() => conversations.id),
+  reader: text("reader").notNull(),
+  lastReadAt: timestamp("last_read_at", { withTimezone: true }).notNull(),
+}, (t) => [primaryKey({ columns: [t.conversationId, t.reader] })]);
+
+// Staff-only notes on a deal. Never selected by any client-facing query and denied to clients by RLS.
+export const dealNotes = pgTable("deal_notes", {
+  id: id(),
+  dealId: uuid("deal_id").notNull().references(() => deals.id),
+  authorId: uuid("author_id").notNull().references(() => users.id),
+  body: text("body").notNull(),
+  createdAt: createdAt(),
+}, (t) => [index("deal_notes_deal_idx").on(t.dealId)]);
+
+// For a staff user or a client, never both. Titles never carry document or message contents.
+export const notifications = pgTable("notifications", {
+  id: id(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+  userId: uuid("user_id").references(() => users.id),
+  clientId: uuid("client_id").references(() => clients.id),
+  dealId: uuid("deal_id").references(() => deals.id),
+  kind: text("kind").notNull(),
+  title: text("title").notNull(),
+  href: text("href").notNull(),
+  readAt: timestamp("read_at", { withTimezone: true }),
+  createdAt: createdAt(),
+}, (t) => [index("notifications_user_idx").on(t.userId, t.readAt), index("notifications_client_idx").on(t.clientId, t.readAt)]);

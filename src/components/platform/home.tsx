@@ -164,7 +164,43 @@ function CrmCard() {
   );
 }
 
-export function AppHome() {
+
+type PortalSummary = Awaited<ReturnType<typeof import("@/server/portal").portalDashboard>>;
+
+// Client portal work waiting on staff. Counts cover the deals this user can see.
+function PortalCard({ p }: { p: PortalSummary }) {
+  const tiles: [string, number][] = [
+    ["Pending invitations", p.pendingInvitations], ["Unread messages", p.unreadMessages], ["Outstanding documents", p.outstandingDocuments], ["Awaiting review", p.awaitingReview],
+  ];
+  return (
+    <div className="min-[1200px]:col-span-2">
+      <Card border header={<Title>Client Portal</Title>}>
+        <ul className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {tiles.map(([t, n]) => <li key={t} className="rounded-[3px] border border-[#ddd] p-3 text-center"><span className="block text-[26px] font-light text-[#428bca]">{n}</span>{t}</li>)}
+        </ul>
+        {p.expiredInvitations > 0 && <p className="mb-3 text-[#8a6d3b]">{p.expiredInvitations} invitation{p.expiredInvitations > 1 ? "s have" : " has"} expired without being accepted.</p>}
+        <h3 className="mb-1 font-semibold text-[#666]">Applications needing attention</h3>
+        {p.attention.length ? (
+          <ul className="mb-4 divide-y divide-[#eee]">
+            {p.attention.map((a) => (
+              <li key={a.id} className="flex flex-wrap gap-x-3 py-1.5">
+                <Link href={`/deal/${a.id}/clientPortal`} className="text-[#428bca] hover:underline">{a.code}</Link>
+                <span>{a.client}</span><span className="text-[#999]">{a.assignee ?? "Unassigned"}</span><span className="ml-auto text-[#a94442]">{a.reasons.join(", ")}</span>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="mb-4 text-[#999]">Nothing waiting on you.</p>}
+        <h3 className="mb-1 font-semibold text-[#666]">Recent portal activity</h3>
+        {p.activity.length ? (
+          <ul className="max-h-[200px] overflow-y-auto">
+            {p.activity.map((a) => <li key={a.id} className="py-0.5"><span className="text-[#999]">{new Date(a.at).toLocaleString("en-CA", { dateStyle: "medium", timeStyle: "short" })}</span> {a.code}: {a.action.replace("portal_", "").replaceAll("_", " ")} <span className="text-[#999]">{a.who}</span></li>)}
+          </ul>
+        ) : <p className="text-[#999]">No activity yet.</p>}
+      </Card>
+    </div>
+  );
+}
+export function AppHome({ portal }: { portal: PortalSummary }) {
   return (
     <AppShell>
       <header className="relative mx-[25px] mb-5 h-[58px] pl-[60px] text-[#666]">
@@ -177,6 +213,7 @@ export function AppHome() {
         <DealsCard />
         <MessageCard />
         <CrmCard />
+        <PortalCard p={portal} />
       </section>
     </AppShell>
   );

@@ -10,22 +10,22 @@ export class Forbidden extends Error {}
 type Scoped = { organizationId: PgColumn; officeId: PgColumn; deletedAt: PgColumn };
 
 // Who sees which rows, as a WHERE clause. Every read and write goes through it, so no query fetches rows the actor can't see.
-// org_admin: whole organization. office_admin / assistant: their office. agent: rows they own.
+// org_admin: whole organization. office_admin / assistant: their office. agent: rows they own (deals: or are assigned to).
 // ponytail: assistants see their whole office; narrow to the agents they assist once that link exists.
-function scope(actor: Actor, t: Scoped, owner: PgColumn): SQL {
+function scope(actor: Actor, t: Scoped, owners: PgColumn[]): SQL {
   const where = [eq(t.organizationId, actor.organizationId), isNull(t.deletedAt)];
   if (actor.role === "office_admin" || actor.role === "assistant") where.push(eq(t.officeId, actor.officeId));
-  if (actor.role === "agent") where.push(eq(owner, actor.id));
+  if (actor.role === "agent") where.push(or(...owners.map((o) => eq(o, actor.id)))!);
   return and(...where)!;
 }
 
-export const contactScope = (actor: Actor) => scope(actor, contacts, contacts.ownerId);
-export const dealScope = (actor: Actor) => scope(actor, deals, deals.agentId);
+export const contactScope = (actor: Actor) => scope(actor, contacts, [contacts.ownerId]);
+export const dealScope = (actor: Actor) => scope(actor, deals, [deals.agentId, deals.assigneeId]);
 
 // The users who can see a deal (the same rules turned around), so a deal task is only ever assigned to someone who can open it.
-export const dealViewers = (deal: { organizationId: string; officeId: string; agentId: string }) =>
+export const dealViewers = (deal: { organizationId: string; officeId: string; agentId: string; assigneeId?: string | null }) =>
   and(
     eq(users.organizationId, deal.organizationId),
     isNull(users.deactivatedAt),
-    or(eq(users.id, deal.agentId), eq(users.role, "org_admin"), and(inArray(users.role, ["office_admin", "assistant"]), eq(users.officeId, deal.officeId))),
+    or(eq(users.id, deal.agentId), deal.assigneeId ? eq(users.id, deal.assigneeId) : undefined, eq(users.role, "org_admin"), and(inArray(users.role, ["office_admin", "assistant"]), eq(users.officeId, deal.officeId))),
   )!;

@@ -50,6 +50,20 @@
       "when": 1793204320923,
       "tag": "0006_compliance",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793286140092,
+      "tag": "0007_portal",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793286142659,
+      "tag": "0008_portal_rls",
+      "breakpoints": true
     }
   ]
 }

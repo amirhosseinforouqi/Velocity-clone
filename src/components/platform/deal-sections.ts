@@ -182,6 +182,7 @@ export const dealTabs = [
   { slug: "mortgageRequests", label: "Mortgage Requests", sections: ["subjectProperty", "mortgageRequest"] },
   { slug: "referrals", label: "Referrals", sections: ["referral"] },
   { slug: "remindersAndTasks", label: "Reminders & Tasks", sections: ["reminders", "tasks"] },
+  { slug: "clientPortal", label: "Client Portal", sections: [] as string[] },
 ];
 
 // Storage key for one workspace field: "section/group/label". Groups repeat labels, so the label alone isn't unique.
