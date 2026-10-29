@@ -50,3 +50,6 @@ temp/
 
 # Local PGlite database
 .data/
+
+.env*
+!.env.example
