@@ -96,7 +96,7 @@ export function Thread({ c, reply, markRead, upload, back }: {
   useEffect(() => {
     if (unread) void markRead(c.id);
   }, [unread, markRead, c.id]);
-  useEffect(() => end.current?.scrollIntoView({ block: "nearest" }), [c.messages.length]);
+  useEffect(() => { end.current?.scrollIntoView({ block: "nearest" }); }, [c.messages.length]);
   return (
     <div>
       <div className="mb-2 flex items-center gap-2">

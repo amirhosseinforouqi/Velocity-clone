@@ -34,7 +34,7 @@ export const clientHref = (dealId: string) => `/portal/applications/${dealId}`;
 
 export const defaultStages = [
   ["Application started", "We've received your application and set up your file.", "Watch for document requests from your team."],
-  ["Documents requested", "Your team has asked for the documents that support your application.", "Upload the requested documents."],
+  ["Documents requested", "Your team has asked for the documents that support your application.", "Check below for anything still to upload."],
   ["Documents under review", "Your team is reviewing the documents you've provided.", "Nothing to do right now. We'll let you know if anything else is needed."],
   ["Submitted to lender", "Your application has been sent to the lender for a decision.", "Nothing to do right now. Lenders usually respond within a few business days."],
   ["Conditional approval", "The lender has approved your mortgage, subject to conditions.", "Your team will tell you which conditions need your help."],

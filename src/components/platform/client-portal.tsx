@@ -28,15 +28,15 @@ export function PortalShell({ name, unread, notes, children }: { name: string; u
     setOpen(!open);
     if (!open && count) { setCount(0); void readClientNotificationsAction(); }
   };
-  const nav = [["My applications", "/portal"], ["Profile", "/portal/profile"]] as const;
+  const nav = [["Applications", "/portal"], ["Profile", "/portal/profile"]] as const;
   return (
     <div className="min-h-screen bg-[#f1f1f1] font-sans text-sm text-[#333]">
       <header className="fixed inset-x-0 top-0 z-30 flex h-[60px] items-center gap-3 border-b border-[#eee] bg-white px-4">
-        <Link href="/portal" className="flex items-center gap-2 text-[22px] font-semibold tracking-tight text-[#2c3e50]"><KeyRound className="size-6 text-[#3d81be]" />Keyway</Link>
+        <Link href="/portal" className="flex items-center gap-2 text-[22px] font-semibold tracking-tight text-[#2c3e50]"><KeyRound className="size-6 text-[#3d81be]" /><span className="sr-only sm:not-sr-only">Keyway</span></Link>
         <span className="hidden text-xs font-semibold tracking-wide text-[#3d81be] uppercase sm:inline">Client Portal</span>
         <nav className="ml-auto flex items-center gap-1" aria-label="Portal">
           {nav.map(([t, h]) => (
-            <Link key={h} href={h} aria-current={path === h ? "page" : undefined} className={cn("rounded-[3px] px-2 py-1.5 hover:bg-[#f5f5f5]", path === h && "font-semibold text-[#3d81be]")}>
+            <Link key={h} href={h} aria-current={path === h ? "page" : undefined} className={cn("rounded-[3px] px-2 py-1.5 whitespace-nowrap hover:bg-[#f5f5f5]", path === h && "font-semibold text-[#3d81be]")}>
               {t}{h === "/portal" && unread.messages > 0 && <span className="ml-1 rounded-full bg-[#d9534f] px-1.5 text-[11px] text-white" aria-label={`${unread.messages} unread messages`}>{unread.messages}</span>}
             </Link>
           ))}
@@ -59,10 +59,10 @@ export function PortalShell({ name, unread, notes, children }: { name: string; u
               </div>
             )}
           </div>
-          <form action={clientLogout}><button className="rounded-[3px] px-2 py-1.5 hover:bg-[#f5f5f5]" title={name}>Sign out</button></form>
+          <form action={clientLogout}><button className="rounded-[3px] px-2 py-1.5 whitespace-nowrap hover:bg-[#f5f5f5]" title={name} aria-label={`Sign out ${name}`}>Sign out</button></form>
         </nav>
       </header>
-      <main className="mx-auto max-w-[1100px] px-4 pt-[75px] pb-6">{children}</main>
+      <main className="mx-auto max-w-[1100px] px-4 pt-[75px] pb-6 [&_section]:mx-0">{children}</main>
     </div>
   );
 }
