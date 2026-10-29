@@ -21,8 +21,15 @@ export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 // Hosted (Supabase Postgres): DATABASE_URL. Migrations are applied by `npm run db:migrate`, never on a serverless cold start.
 // prepare: false because Supabase's transaction pooler doesn't support prepared statements.
 // ponytail: typed as the PGlite database; the query builder is identical, only raw db.execute() results differ (none in app code).
-function openHosted(url: string) {
-  return drizzlePg({ client: postgres(url, { prepare: false, max: 5 }), schema }) as unknown as Db;
+export function openHosted(url: string) {
+  const client = postgres(url, { prepare: false, max: 5 });
+  const db = drizzlePg({ client, schema });
+  // drizzle makes postgres-js's timestamp serializers pass-through, so a Date inside a raw sql`` template
+  // reached the wire as an object and crashed the query (PGlite accepts it, so tests didn't catch it).
+  const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : v);
+  client.options.serializers[1184] = iso;
+  client.options.serializers[1114] = iso;
+  return db as unknown as Db;
 }
 
 // DATABASE_URL, or the POSTGRES_URL the Supabase integration adds on Vercel (transaction pooler, IPv4).
