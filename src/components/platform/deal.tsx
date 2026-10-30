@@ -4,7 +4,8 @@ import { createContext, startTransition, useActionState, useContext, useRef, use
 import { CheckCircle, ChevronDown, FileText, Folder } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { moveDealAction, saveDealAction } from "@/app/deal/actions";
+import { useRouter } from "next/navigation";
+import { deleteDealAction, moveDealAction, saveDealAction } from "@/app/deal/actions";
 import { allowedMoves, dealCode, isReinstate, statusLabel, type DealStatus } from "@/server/deal-status";
 import type { dealHistory, getDeal } from "@/server/deals";
 import { dealMetrics } from "@/server/metrics";
@@ -174,6 +175,16 @@ function Overview({ deal, view, setView, message }: { deal: Deal; view: string; 
   const [moved, setMoved] = useState<{ error?: string }>({});
   const [pending, start] = useTransition();
   const menu = useRef<HTMLDetailsElement>(null);
+  const router = useRouter();
+  const remove = () => {
+    menu.current?.removeAttribute("open");
+    if (!confirm(`Delete deal ${dealCode(deal.number)}? It disappears from every list. An admin can restore it from Admin > Recently Deleted.`)) return;
+    start(async () => {
+      const r = await deleteDealAction(deal.id);
+      if (r.error) setMoved(r);
+      else router.push("/");
+    });
+  };
   const move = (to: DealStatus) => {
     menu.current?.removeAttribute("open");
     if ((to === "parked" || to === "cancelled") && !confirm(`${moveLabel(deal.status, to)} deal ${dealCode(deal.number)}?`)) return;
@@ -216,6 +227,7 @@ function Overview({ deal, view, setView, message }: { deal: Deal; view: string; 
             <li>
               <button type="submit" name="intent" value="validate" onClick={() => menu.current?.removeAttribute("open")} className="w-full px-4 py-1.5 text-left hover:bg-[#f5f5f5]">Save + Validate</button>
             </li>
+            <li><button type="button" onClick={remove} className="w-full px-4 py-1.5 text-left text-[#a94442] hover:bg-[#f5f5f5]">Delete Deal</button></li>
             {notBuilt.map((a) => (
               <li key={a}><button type="button" disabled title="Not built yet" className="w-full px-4 py-1.5 text-left text-[#aaa]">{a}</button></li>
             ))}

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { fieldKeys } from "../components/platform/deal-sections.ts";
 import { dealScope, Forbidden, type Actor } from "./access.ts";
 import { audit } from "./audit.ts";
@@ -162,4 +162,41 @@ export function dealHistory(db: Db, id: string) {
   return db.select({ id: dealStatusHistory.id, from: dealStatusHistory.from, to: dealStatusHistory.to, at: dealStatusHistory.at, actor: users.name })
     .from(dealStatusHistory).innerJoin(users, eq(users.id, dealStatusHistory.actorId))
     .where(eq(dealStatusHistory.dealId, id)).orderBy(asc(dealStatusHistory.at));
+}
+
+// Deals are never hard-deleted. Deleting hides the deal everywhere (dealScope skips deleted rows); admins see it under
+// Admin > Recently Deleted and can restore it.
+export async function deleteDeal(db: Db, actor: Actor, id: string) {
+  if (actor.role === "assistant") throw new Forbidden("Assistants can't delete deals");
+  await mustGet(db, actor, id);
+  await db.transaction(async (tx) => {
+    await tx.update(deals).set({ deletedAt: new Date() }).where(eq(deals.id, id));
+    await audit(tx, actor, "deal", id, "delete", null, null);
+  });
+}
+
+// Admins only: org admins see the whole organization, office admins their own office.
+const deletedScope = (actor: Actor) => {
+  if (actor.role !== "org_admin" && actor.role !== "office_admin") throw new Forbidden("Only admins can see deleted deals");
+  return and(eq(deals.organizationId, actor.organizationId), isNotNull(deals.deletedAt), actor.role === "office_admin" ? eq(deals.officeId, actor.officeId) : undefined)!;
+};
+
+export async function listDeletedDeals(db: Db, actor: Actor) {
+  return db
+    .select({ id: deals.id, number: deals.number, status: deals.status, amount: deals.amount, deletedAt: deals.deletedAt, agent: users.name, firstName: contacts.firstName, lastName: contacts.lastName })
+    .from(deals)
+    .innerJoin(users, eq(users.id, deals.agentId))
+    .leftJoin(dealBorrowers, and(eq(dealBorrowers.dealId, deals.id), eq(dealBorrowers.position, 0)))
+    .leftJoin(contacts, eq(contacts.id, dealBorrowers.contactId))
+    .where(deletedScope(actor))
+    .orderBy(desc(deals.deletedAt));
+}
+
+export async function restoreDeal(db: Db, actor: Actor, id: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Forbidden("Deal not found");
+  await db.transaction(async (tx) => {
+    const [row] = await tx.update(deals).set({ deletedAt: null, updatedAt: new Date() }).where(and(eq(deals.id, id), deletedScope(actor))).returning({ id: deals.id });
+    if (!row) throw new Forbidden("Deal not found");
+    await audit(tx, actor, "deal", id, "restore", null, null);
+  });
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState, useTransition, type FormEvent, type ReactNode } from "react";
-import { BookCheck, Building2, FileText, Network, Users } from "lucide-react";
+import { BookCheck, Building2, FileText, Network, Trash2, Users } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -10,7 +10,8 @@ import {
   saveOfficeAction, saveOrganizationAction, saveUserAction, type ConsentInput,
 } from "@/app/admin/actions";
 import type { AdminUserRow } from "@/server/admin";
-import { statusLabel, type DealStatus } from "@/server/deal-status";
+import { dealCode, statusLabel, type DealStatus } from "@/server/deal-status";
+import { restoreDealAction } from "@/app/deal/actions";
 import {
   consentKey, consentLangs, documentConsents, incomeFields, licences, officeChecks, officeSelects, onlineConsents, orgFeatures, roleLabels, userChecks,
 } from "./admin-fields";
@@ -494,6 +495,31 @@ export function AppLogs({ rows, total, page, entities, entity, per }: { rows: Lo
           ))}</div>
         </Modal>
       )}
+    </AppShell>
+  );
+}
+
+type DeletedDeal = { id: string; number: number; status: DealStatus; amount: number | null; deletedAt: Date | null; agent: string; firstName: string | null; lastName: string | null };
+
+export function AppDeletedDeals({ rows }: { rows: DeletedDeal[] }) {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState("");
+  const restore = (d: DeletedDeal) => {
+    if (!confirm(`Restore deal ${dealCode(d.number)}? It goes back to every list it was in.`)) return;
+    start(async () => setError((await restoreDealAction(d.id)).error ?? ""));
+  };
+  return (
+    <AppShell>
+      <PageHeader icon={Trash2} title="Recently Deleted" crumbs={[["Admin"], ["Recently Deleted"]]} />
+      <GridPanel title="Deleted Deals">
+        <p className="mb-3 text-[12.6px] text-[#666]">Deleted deals are kept here and hidden everywhere else. Only admins can see this page.</p>
+        {error && <p className="mb-3 text-[12.6px] text-[#a94442]">{error}</p>}
+        <Grid head={["Deal #", "Client", "Status", "Amount", "Agent", "Deleted", ""]} rows={rows.map((d) => [
+          dealCode(d.number), [d.firstName, d.lastName].filter(Boolean).join(" "), statusLabel[d.status], d.amount == null ? "" : `$${d.amount.toLocaleString("en-CA")}`, d.agent,
+          d.deletedAt?.toLocaleString("en-CA") ?? "",
+          <button key="r" disabled={pending} onClick={() => restore(d)} className={cn(blueBtn, small)}>Restore</button>,
+        ])} empty="No deleted deals" />
+      </GridPanel>
     </AppShell>
   );
 }

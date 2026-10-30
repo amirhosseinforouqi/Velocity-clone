@@ -6,7 +6,7 @@ import { Forbidden, type Actor } from "./access.ts";
 import { fieldKey, sections } from "../components/platform/deal-sections.ts";
 import { archiveContact, createContact, getContact, listContacts, setCasl, updateContact, ValidationError } from "./contacts.ts";
 import { allowedMoves, boardStatuses } from "./deal-status.ts";
-import { createDeal, dealCode, dealHistory, findDealByCode, getDeal, listDeals, moveDeal, saveDeal } from "./deals.ts";
+import { createDeal, dealCode, dealHistory, deleteDeal, findDealByCode, getDeal, listDeals, listDeletedDeals, moveDeal, restoreDeal, saveDeal } from "./deals.ts";
 import { openDb, type Db } from "./db.ts";
 import { hashPassword, verifyPassword } from "./password.ts";
 import { auditLog, contactConsents, organizations, users } from "./schema.ts";
@@ -187,4 +187,26 @@ test("workspace field keys are unique per field", () => {
   const all = sections.flatMap((s) => s.groups.flatMap((g) => (g.fields ?? []).map((f) => fieldKey(s, g, f))));
   const dupes = all.filter((k, i) => all.indexOf(k) !== i);
   assert.deepEqual(dupes, []);
+});
+
+test("deleting a deal hides it but keeps it; only admins in scope can see and restore it", async () => {
+  const d = await newDeal(as.agent);
+  await assert.rejects(deleteDeal(db, as.assistant, d.id), /Assistants/);
+  await assert.rejects(deleteDeal(db, as["ottawa.agent"], d.id), Forbidden);
+  await deleteDeal(db, as.agent, d.id);
+  assert.equal(await getDeal(db, as.agent, d.id), null);
+  assert.ok(!(await listDeals(db, as.admin)).some((x) => x.id === d.id));
+  await assert.rejects(listDeletedDeals(db, as.agent), Forbidden);
+  assert.ok((await listDeletedDeals(db, as.admin)).some((x) => x.id === d.id));
+  assert.ok((await listDeletedDeals(db, as["office.admin"])).some((x) => x.id === d.id));
+  const ottawa = await newDeal(as["ottawa.agent"]);
+  await deleteDeal(db, as["ottawa.agent"], ottawa.id);
+  assert.ok(!(await listDeletedDeals(db, as["office.admin"])).some((x) => x.id === ottawa.id), "office admins see their own office only");
+  await assert.rejects(restoreDeal(db, as["office.admin"], ottawa.id), Forbidden);
+  await assert.rejects(restoreDeal(db, as.agent, d.id), Forbidden);
+  await restoreDeal(db, as.admin, d.id);
+  assert.equal((await getDeal(db, as.agent, d.id))?.id, d.id);
+  await assert.rejects(restoreDeal(db, as.admin, d.id), Forbidden, "a live deal can't be restored");
+  const actions = (await db.select().from(auditLog).where(eq(auditLog.entityId, d.id))).map((r) => r.action);
+  assert.ok(actions.includes("delete") && actions.includes("restore"));
 });

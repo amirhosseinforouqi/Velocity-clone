@@ -113,7 +113,7 @@ const menuItems: MenuItem[] = [
   { label: "Parked Deals", icon: CircleParking, href: "/deals/parked" },
   { label: "Admin", icon: Shield, expand: true, children: [
     { label: "Offices", href: "/admin/office/list" }, { label: "Users", href: "/admin/users" }, { label: "User Matrix", href: "/admin/user-matrix" },
-    { label: "Lenders", href: "/admin/lenders" }, { label: "Lender Matrix", href: "/admin/lender-matrix" }, { label: "Logs", href: "/admin/logs" }, { label: "Condition Library", href: "/admin/conditions" }, { label: "Compliance", href: "/compliance/dashboard" },
+    { label: "Lenders", href: "/admin/lenders" }, { label: "Lender Matrix", href: "/admin/lender-matrix" }, { label: "Logs", href: "/admin/logs" }, { label: "Recently Deleted", href: "/admin/deleted" }, { label: "Condition Library", href: "/admin/conditions" }, { label: "Compliance", href: "/compliance/dashboard" },
     { label: "Organization", href: "/admin/organization/edit" }, { label: "Client Portal", href: "/admin/client-portal" }, { label: "Progress Stages", href: "/admin/stages" },
     { label: "Document Checklists", href: "/admin/checklists" }, { label: "Email Templates", href: "/admin/email-templates" },
   ] },

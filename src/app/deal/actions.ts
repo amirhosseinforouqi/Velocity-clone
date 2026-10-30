@@ -8,7 +8,7 @@ import { addCondition, removeDocument, setConditionStatus, uploadDocument } from
 import { createContact, setCasl, ValidationError } from "@/server/contacts";
 import { getDb } from "@/server/db";
 import type { DealStatus } from "@/server/deal-status";
-import { createDeal, moveDeal, newDealValues, saveDeal } from "@/server/deals";
+import { createDeal, deleteDeal, moveDeal, newDealValues, restoreDeal, saveDeal } from "@/server/deals";
 import { bulkTasks, createTask, dealReminders, myDay, removeTask, today, updateTask } from "@/server/tasks";
 import { lenderChoices } from "@/server/lenders";
 import { validateDeal, type Problem } from "@/server/validate";
@@ -18,7 +18,7 @@ type Result = { error?: string; id?: string };
 async function run(fn: () => Promise<string | void>): Promise<Result> {
   try {
     const id = await fn();
-    for (const p of ["/dashboard", "/deal", "/deals", "/contacts", "/my-day", "/calendar", "/compliance", "/reports"]) revalidatePath(p, "layout");
+    for (const p of ["/", "/dashboard", "/deal", "/deals", "/contacts", "/my-day", "/calendar", "/compliance", "/reports", "/admin/deleted"]) revalidatePath(p, "layout");
     return id ? { id } : {};
   } catch (e) {
     if (e instanceof ValidationError || e instanceof Forbidden) return { error: e.message };
@@ -62,6 +62,14 @@ export async function saveDealAction(id: string, _prev: unknown, form: FormData)
 
 export async function moveDealAction(id: string, to: DealStatus) {
   return run(async () => void (await moveDeal(await getDb(), await requireActor(), id, to)));
+}
+
+export async function deleteDealAction(id: string) {
+  return run(async () => void (await deleteDeal(await getDb(), await requireActor(), id)));
+}
+
+export async function restoreDealAction(id: string) {
+  return run(async () => void (await restoreDeal(await getDb(), await requireActor(), id)));
 }
 
 export async function addConditionAction(dealId: string, input: { templateId?: string; name?: string }) {
