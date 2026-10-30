@@ -11,7 +11,7 @@ import { auditLog, clients, contacts, dealBorrowers, dealConditions, deals, deal
 export { dealCode } from "./deal-status.ts";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const dateCols = ["closingDate", "conditionsDate", "followUpDate"] as const;
+const dateCols = ["closingDate", "conditionsDate", "lawyerInstructedDate", "followUpDate"] as const;
 const newStatuses: DealStatus[] = ["lead", "pre_approval", "new_deal"];
 // Workspace fields that are also kept as columns, so dashboards and reports can sort and sum them.
 const PURPOSE = "mortgageRequest/Mortgage Breakdown/Application Purpose";
@@ -40,7 +40,8 @@ export function listDeals(db: Db, actor: Actor, statuses?: DealStatus[]) {
   return db
     .select({
       id: deals.id, number: deals.number, status: deals.status, previousStatus: deals.previousStatus, purpose: deals.purpose, amount: deals.amount,
-      closingDate: deals.closingDate, conditionsDate: deals.conditionsDate, followUpDate: deals.followUpDate, submittedDate: deals.submittedDate,
+      closingDate: deals.closingDate, conditionsDate: deals.conditionsDate, lawyerInstructedDate: deals.lawyerInstructedDate, followUpDate: deals.followUpDate, submittedDate: deals.submittedDate,
+      conditionsRequired: conditionCount("outstanding"), conditionsReceived: conditionCount("received"), conditionsSatisfied: conditionCount("met", "waived"),
       lender: field("closeOut//Lender"), product: field("closeOut//Product"), netRate: field("mortgageRequest/Rates and Payments/Net Rate"),
       conditionsMet: field("conditions//Lender Conditions Met"),
       agent: users.name, agentActive: sql<boolean>`${users.deactivatedAt} is null`, firstName: contacts.firstName, lastName: contacts.lastName, address: contacts.address, contactId: contacts.id,
@@ -54,6 +55,22 @@ export function listDeals(db: Db, actor: Actor, statuses?: DealStatus[]) {
 }
 
 export type DealRow = Awaited<ReturnType<typeof listDeals>>[number];
+
+function conditionCount(...statuses: string[]) {
+  return sql<number>`(select count(*) from ${dealConditions} c where c.deal_id = ${deals.id} and c.status in (${sql.join(statuses.map((s) => sql`${s}`), sql`, `)}))`.mapWith(Number);
+}
+
+const milestones = [["submittedDate", "Lender Submit"], ["conditionsDate", "Lender Conditions"], ["lawyerInstructedDate", "Lawyer Instructed"], ["closingDate", "Closing"]] as const;
+type MilestoneDates = Pick<DealRow, (typeof milestones)[number][0] | "conditionsMet">;
+
+// The deal's soonest milestone on or after today (dates are YYYY-MM-DD); lender conditions drop out once marked met.
+export function nextMilestone(d: MilestoneDates, today: string) {
+  const [next] = milestones
+    .map(([k, milestone]) => ({ milestone, deadline: d[k] }))
+    .filter((m): m is { milestone: (typeof milestones)[number][1]; deadline: string } => !!m.deadline && m.deadline >= today && !(m.milestone === "Lender Conditions" && d.conditionsMet === "Yes"))
+    .sort((a, b) => a.deadline.localeCompare(b.deadline));
+  return next ? { ...next, daysTo: Math.round((Date.parse(next.deadline) - Date.parse(today)) / 86_400_000) } : null;
+}
 
 // Returns null both when the deal doesn't exist and when the actor can't see it, so ids can't be probed.
 export async function getDeal(db: Db, actor: Actor, id: string) {

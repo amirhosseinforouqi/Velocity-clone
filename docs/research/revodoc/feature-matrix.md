@@ -326,3 +326,9 @@ Every slice uses synthetic `@keyway.test` data. Nothing sends email or SMS on it
   - New Activity tab on each deal: date, who, action, details for every audit entry on the deal and its tasks, conditions and documents, newest first (`dealActivity` in `src/server/deals.ts`).
   - Only staff who can see the deal; edits list the changed field labels, never their values.
   - Not built: RevoDoc's "Deal viewed" entries, since Keyway doesn't log views.
+- **Slice 4 done** (#6, #21, #22).
+  - Lawyer Instructed date (migration 0011, `deals.lawyer_instructed_date`), editable in the deal header next to Closing and Conditions; Submitted shows read-only.
+  - Home page Deadlines card: each open deal's next milestone (Lender Submit, Lender Conditions, Lawyer Instructed, Closing) with days to go (`nextMilestone` in `src/server/deals.ts`). Lender Conditions drops out once marked met.
+  - Condition counts on the deals grid ("Cond. Req / Rec / Sat") and a home Conditions card.
+  - Not built: a Rejected count. Keyway conditions have no rejected state (Received is the in-between state instead).
+  - Tests: `server.test.ts`. Verified in the browser as an agent.

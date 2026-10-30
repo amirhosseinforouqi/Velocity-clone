@@ -6,10 +6,11 @@ import { Forbidden, type Actor } from "./access.ts";
 import { fieldKey, sections } from "../components/platform/deal-sections.ts";
 import { archiveContact, createContact, getContact, listContacts, setCasl, updateContact, ValidationError } from "./contacts.ts";
 import { allowedMoves, boardStatuses } from "./deal-status.ts";
-import { createDeal, dealActivity, dealCode, dealHistory, deleteDeal, findDealByCode, getDeal, listDeals, listDeletedDeals, moveDeal, restoreDeal, saveDeal } from "./deals.ts";
+import { createDeal, dealActivity, dealCode, dealHistory, deleteDeal, findDealByCode, getDeal, listDeals, listDeletedDeals, moveDeal, nextMilestone, restoreDeal, saveDeal } from "./deals.ts";
 import { openDb, type Db } from "./db.ts";
 import { hashPassword, verifyPassword } from "./password.ts";
 import { auditLog, contactConsents, organizations, users } from "./schema.ts";
+import { addCondition, dealChecklist, setConditionStatus } from "./conditions.ts";
 import { createTask } from "./tasks.ts";
 import { DEV_PASSWORD, seedIfEmpty } from "./seed.ts";
 import { verifyLogin } from "./users.ts";
@@ -163,6 +164,34 @@ test("deal activity lists edits, moves and child records, only for staff who can
   assert.ok(!JSON.stringify(log).includes("Refinance"), "field values stay out of the activity view");
   await assert.rejects(dealActivity(db, as["ottawa.agent"], d.id), Forbidden);
   assert.ok((await dealActivity(db, as.admin, d.id)).length === log.length);
+});
+
+test("next milestone is the soonest date from today; met conditions drop out", () => {
+  const d = { submittedDate: "2027-01-02", conditionsDate: "2027-01-10", lawyerInstructedDate: "2027-01-20", closingDate: "2027-02-01", conditionsMet: null };
+  assert.deepEqual(nextMilestone(d, "2027-01-01"), { milestone: "Lender Submit", deadline: "2027-01-02", daysTo: 1 });
+  assert.equal(nextMilestone(d, "2027-01-03")?.milestone, "Lender Conditions");
+  assert.equal(nextMilestone(d, "2027-01-10")?.daysTo, 0, "due today still counts");
+  assert.equal(nextMilestone({ ...d, conditionsMet: "Yes" }, "2027-01-03")?.milestone, "Lawyer Instructed");
+  assert.equal(nextMilestone({ ...d, closingDate: "2027-01-15" }, "2027-01-11")?.milestone, "Closing", "ordered by date, not by stage");
+  assert.equal(nextMilestone(d, "2027-03-01"), null);
+  assert.equal(nextMilestone({ submittedDate: null, conditionsDate: null, lawyerInstructedDate: null, closingDate: null, conditionsMet: null }, "2027-01-01"), null);
+});
+
+test("lawyer instructed date saves; the deal list counts conditions by state", async () => {
+  const d = await newDeal(as.agent);
+  await saveDeal(db, as.agent, d.id, { lawyerInstructedDate: "2027-03-04" });
+  assert.equal((await getDeal(db, as.agent, d.id))!.lawyerInstructedDate, "2027-03-04");
+  await assert.rejects(saveDeal(db, as.agent, d.id, { lawyerInstructedDate: "soon" }), ValidationError);
+  for (const name of ["Synthetic paystub", "Synthetic appraisal", "Synthetic void cheque"]) await addCondition(db, as.agent, d.id, { name });
+  const [a, b] = (await dealChecklist(db, as.agent, d.id)).conditions.filter((c) => c.name.startsWith("Synthetic"));
+  await setConditionStatus(db, as.agent, a.id, "met");
+  await setConditionStatus(db, as.agent, b.id, "received");
+  const row = (await listDeals(db, as.agent)).find((r) => r.id === d.id)!;
+  const list = (await dealChecklist(db, as.agent, d.id)).conditions;
+  const n = (...st: string[]) => list.filter((c) => st.includes(c.status)).length;
+  assert.deepEqual([row.conditionsRequired, row.conditionsReceived, row.conditionsSatisfied], [n("outstanding"), 1, n("met", "waived")]);
+  assert.ok(row.conditionsRequired >= 1 && row.conditionsSatisfied >= 1);
+  assert.equal(row.lawyerInstructedDate, "2027-03-04");
 });
 
 test("status moves follow the rules; park and cancel reinstate to the previous status", async () => {

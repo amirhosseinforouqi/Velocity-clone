@@ -78,6 +78,13 @@
       "when": 1793376450707,
       "tag": "0010_note_category",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793378523000,
+      "tag": "0011_lawyer_instructed",
+      "breakpoints": true
     }
   ]
 }

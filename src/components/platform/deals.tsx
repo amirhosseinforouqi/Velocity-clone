@@ -122,6 +122,7 @@ const toGridRow = (d: DealRow) => ({
   status: stages.find((s) => s.status === d.status)?.name ?? d.status,
   loanCode: d.status === "lead" ? "" : dealCode(d.number),
   login: d.agent,
+  conditions: `${d.conditionsRequired} / ${d.conditionsReceived} / ${d.conditionsSatisfied}`,
 });
 type GridRow = ReturnType<typeof toGridRow>;
 
@@ -133,6 +134,8 @@ const columns: { key: keyof GridRow; label: string; isDate?: boolean }[] = [
   { key: "purpose", label: "Purpose" },
   { key: "closingDate", label: "Closing", isDate: true },
   { key: "conditionsDate", label: "Conditions", isDate: true },
+  { key: "lawyerInstructedDate", label: "Lawyer Instructed", isDate: true },
+  { key: "conditions", label: "Cond. Req / Rec / Sat" },
   { key: "lender", label: "Lender" },
   { key: "product", label: "Product" },
   { key: "netRate", label: "Net Rate" },

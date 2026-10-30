@@ -110,6 +110,7 @@ export const deals = pgTable("deals", {
   amount: integer("amount"), // whole dollars
   closingDate: date("closing_date"),
   conditionsDate: date("conditions_date"),
+  lawyerInstructedDate: date("lawyer_instructed_date"),
   followUpDate: date("follow_up_date"),
   submittedDate: date("submitted_date"),
   // Workspace fields keyed "section/group/label" (see deal-sections.ts); only whitelisted keys are stored.

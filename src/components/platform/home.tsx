@@ -221,7 +221,50 @@ function PortalCard({ p }: { p: PortalSummary }) {
     </div>
   );
 }
-export function AppHome({ portal, deals }: { portal: PortalSummary; deals: DealSummary }) {
+type Deadline = { id: string; name: string; deadline: string; daysTo: number; milestone: string };
+type ConditionCount = { id: string; name: string; code: string; required: number; received: number; satisfied: number };
+
+// A scrolling table in a home card; rows link to the deal.
+function DealTable({ cols, rows, empty }: { cols: string[]; rows: { id: string; href: string; cells: ReactNode[] }[]; empty: string }) {
+  if (!rows.length) return <p className="mb-4 text-[#999]">{empty}</p>;
+  return (
+    <div className="max-h-[300px] overflow-y-auto">
+      <table className="w-full">
+        <thead><tr>{cols.map((c) => <th key={c} className="border-b border-[#ddd] py-1.5 pr-2 text-left font-semibold text-[#666]">{c}</th>)}</tr></thead>
+        <tbody>{rows.map((r) => (
+          <tr key={r.id} className="border-b border-[#eee]">
+            {r.cells.map((c, i) => <td key={i} className="py-1.5 pr-2">{i === 0 ? <Link href={r.href} className="text-[#428bca] hover:underline">{c}</Link> : c}</td>)}
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function DeadlinesCard({ deadlines }: { deadlines: Deadline[] }) {
+  return (
+    <Card border header={<Title>Deadlines</Title>}>
+      <DealTable
+        cols={["Name", "Deadline", "Days To", "Milestone"]} empty="No upcoming deadlines on open deals."
+        rows={deadlines.map((d) => ({ id: d.id, href: `/deal/${d.id}`, cells: [d.name, d.deadline, <span key="d" className={cn(d.daysTo <= 3 && "font-bold text-[#a94442]")}>{d.daysTo}</span>, d.milestone] }))}
+      />
+    </Card>
+  );
+}
+
+// ponytail: Keyway conditions have no Rejected state; a rejected document puts its condition back to Required.
+function ConditionsCard({ conditions }: { conditions: ConditionCount[] }) {
+  return (
+    <Card border header={<Title>Conditions</Title>}>
+      <DealTable
+        cols={["Name", "Deal", "Required", "Received", "Satisfied"]} empty="No conditions on open deals."
+        rows={conditions.map((c) => ({ id: c.id, href: `/deal/${c.id}/conditions`, cells: [c.name, c.code, c.required, c.received, c.satisfied] }))}
+      />
+    </Card>
+  );
+}
+
+export function AppHome({ portal, deals, deadlines, conditions }: { portal: PortalSummary; deals: DealSummary; deadlines: Deadline[]; conditions: ConditionCount[] }) {
   return (
     <AppShell>
       <header className="relative mx-[25px] mb-5 h-[58px] pl-[60px] text-[#666]">
@@ -234,6 +277,8 @@ export function AppHome({ portal, deals }: { portal: PortalSummary; deals: DealS
         <DealsCard deals={deals} />
         <MessageCard />
         <CrmCard preApprovals={stage(deals, "pre_approval").count} />
+        <DeadlinesCard deadlines={deadlines} />
+        <ConditionsCard conditions={conditions} />
         <PortalCard p={portal} />
       </section>
     </AppShell>

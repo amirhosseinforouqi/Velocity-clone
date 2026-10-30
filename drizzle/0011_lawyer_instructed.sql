@@ -1,0 +1,1 @@
+ALTER TABLE "deals" ADD COLUMN "lawyer_instructed_date" date;

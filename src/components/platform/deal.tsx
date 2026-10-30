@@ -295,7 +295,9 @@ function Overview({ deal, view, setView, message }: { deal: Deal; view: string; 
         <Metric label="Net Worth">{deal.fields["assetsProperties/Totals/Net Worth"] || "—"}</Metric>
         <Metric label="Status">{statusLabel[deal.status]}</Metric>
         <Metric label="Closing"><input type="date" name="closingDate" defaultValue={deal.closingDate ?? ""} className={dateInput} /></Metric>
+        <Metric label="Submitted">{deal.submittedDate ?? "—"}</Metric>
         <Metric label="Conditions"><input type="date" name="conditionsDate" defaultValue={deal.conditionsDate ?? ""} className={dateInput} /></Metric>
+        <Metric label="Lawyer Instr."><input type="date" name="lawyerInstructedDate" defaultValue={deal.lawyerInstructedDate ?? ""} className={dateInput} /></Metric>
       </div>
       {(note || message?.ok) && (
         <div className={cn("mt-2.5 flex items-center gap-2 rounded-[3px] border px-[15px] py-2.5", note ? "border-[#ebccd1] bg-[#f2dede] text-[#a94442]" : "border-[#d6e9c6] bg-[#dff0d8] text-[#3c763d]")}>
