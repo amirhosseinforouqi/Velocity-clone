@@ -1,13 +1,13 @@
 "use client";
 
 import { useActionState, useState, useTransition, type FormEvent, type ReactNode } from "react";
-import { BookCheck, Building2, FileText, Network, Trash2, Users } from "lucide-react";
+import { BookCheck, Building2, FileText, ListChecks, Network, Trash2, Users } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   deactivateUserAction, deleteConsentAction, deleteOfficeAction, patchUserAction, restoreUserAction, saveConditionAction, saveConsentAction,
-  saveOfficeAction, saveOrganizationAction, saveUserAction, type ConsentInput,
+  saveOfficeAction, saveOrganizationAction, saveProgressStepAction, saveUserAction, type ConsentInput,
 } from "@/app/admin/actions";
 import type { AdminUserRow } from "@/server/admin";
 import { dealCode, statusLabel, type DealStatus } from "@/server/deal-status";
@@ -472,6 +472,62 @@ function ConditionModal({ template, close }: { template: Template; close: () => 
         </div>
         <Err text={run.error} />
       </div>
+    </Modal>
+  );
+}
+
+// ---- Progress steps: each deal type's checklist (RevoDoc's progress templates), shown on a deal's Progress tab.
+
+type Step = { id: string; dealType: string; name: string; position: number; days: number; milestone: boolean; todos: string[]; autoMessage: string; prerequisiteId: string | null; active: boolean };
+
+export function AppProgressSteps({ steps, dealTypes, canEdit }: { steps: Step[]; dealTypes: readonly string[]; canEdit: boolean }) {
+  const [type, setType] = useState(dealTypes[0]);
+  const [edit, setEdit] = useState<Step | null>(null);
+  const rows = steps.filter((s) => s.dealType === type);
+  return (
+    <AppShell>
+      <PageHeader icon={ListChecks} title="Progress Steps" crumbs={[["Progress Steps"]]} />
+      <GridPanel title={`${type} Steps`} tools={<>
+        <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Deal type" className={cn(input, "w-[160px]")}>{dealTypes.map((t) => <option key={t}>{t}</option>)}</select>
+        {canEdit && <button onClick={() => setEdit({ id: "", dealType: type, name: "", position: (rows.at(-1)?.position ?? 0) + 1, days: 0, milestone: false, todos: [], autoMessage: "", prerequisiteId: null, active: true })} className={cn(greenBtn, "px-3 py-1")}>Add Step</button>}
+      </>}>
+        <p className="mb-2 text-[#999]">Deals with this Application Type list these steps on their Progress tab. Targets count days from the day the deal was created. Todos and the auto message become tasks when staff press Create Tasks; Keyway does not send auto messages.</p>
+        <Grid head={["#", "Step", "Days", "Needs", "Todos", "Auto Message", "Status", ...(canEdit ? [""] : [])]} rows={rows.map((s) => [
+          s.position, s.milestone ? `${s.name} (milestone)` : s.name, s.days, steps.find((p) => p.id === s.prerequisiteId)?.name ?? "-", s.todos.length, s.autoMessage ? "Yes" : "-", s.active ? "Active" : "Inactive",
+          ...(canEdit ? [<button key="e" onClick={() => setEdit(s)} className={cn(blueBtn, small)}>Edit</button>] : []),
+        ])} />
+      </GridPanel>
+      {edit && <StepModal step={edit} others={rows.filter((s) => s.id !== edit.id)} close={() => setEdit(null)} />}
+    </AppShell>
+  );
+}
+
+function StepModal({ step, others, close }: { step: Step; others: Step[]; close: () => void }) {
+  const [s, setS] = useState({ ...step, todos: step.todos.join("\n") });
+  const set = (patch: Partial<typeof s>) => setS({ ...s, ...patch });
+  const run = useRun();
+  const submit = () => run.go(() => saveProgressStepAction(step.id || null, { ...s, todos: s.todos.split("\n") }), close);
+  return (
+    <Modal wide title={step.id ? "Edit Step" : `Add ${step.dealType} Step`} close={close} footer={<>
+      <button disabled={run.pending} onClick={submit} className={cn(greenBtn, "px-3 py-1.5 text-[12.6px] disabled:opacity-60")}>Save</button>
+      <button onClick={close} className={cn(greyBtn, "px-3 py-1.5 text-[12.6px]")}>Cancel</button>
+    </>}>
+      <div className="grid gap-3 text-[12.6px] sm:grid-cols-2">
+        <label className="sm:col-span-2"><span className={label}>Step</span><input value={s.name} onChange={(e) => set({ name: e.target.value })} className={input} /></label>
+        <label><span className={label}>Order</span><input type="number" min={0} value={s.position} onChange={(e) => set({ position: Number(e.target.value) })} className={input} /></label>
+        <label><span className={label}>Target: days after the deal is created</span><input type="number" min={0} max={365} value={s.days} onChange={(e) => set({ days: Number(e.target.value) })} className={input} /></label>
+        <label className="sm:col-span-2"><span className={label}>Needs this step completed first</span>
+          <select value={s.prerequisiteId ?? ""} onChange={(e) => set({ prerequisiteId: e.target.value || null })} className={input}>
+            <option value="">None</option>
+            {others.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+        </label>
+        <label className="sm:col-span-2"><span className={label}>Todos, one per line (each becomes a follow-up task)</span><textarea rows={4} value={s.todos} onChange={(e) => set({ todos: e.target.value })} className={cn(input, "h-auto py-1")} /></label>
+        <label className="sm:col-span-2"><span className={label}>Auto message (becomes an email reminder task; Keyway does not send it)</span><textarea rows={3} value={s.autoMessage} onChange={(e) => set({ autoMessage: e.target.value })} className={cn(input, "h-auto py-1")} /></label>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={s.milestone} onChange={(e) => set({ milestone: e.target.checked })} /> Milestone</label>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={s.active} onChange={(e) => set({ active: e.target.checked })} /> Active</label>
+      </div>
+      <Err text={run.error} />
     </Modal>
   );
 }

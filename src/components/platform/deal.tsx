@@ -16,6 +16,7 @@ import { dealTabs, fieldKey, sections, selectOptions, type Group } from "./deal-
 import { ComplianceContext, DealCompliance } from "./deal-compliance";
 import { ChecklistContext, DealConditions, type Checklist } from "./deal-conditions";
 import { DealContacts, DealContactsContext, type DealContactData } from "./deal-contacts";
+import { DealProgress, ProgressContext, type Progress } from "./deal-progress";
 import { DealTasks, TasksContext, type DealTaskList } from "./deal-tasks";
 import { AppShell } from "./shell";
 
@@ -149,6 +150,7 @@ function GroupView({ group, section }: { group: Group; section: string }) {
       {(group.custom === "reminders" || group.custom === "tasks") && <DealTasks kind={group.custom} />}
       {group.custom === "contacts" && <DealContacts />}
       {group.custom === "referrals" && <DealContacts role="Referral Source" />}
+      {group.custom === "progress" && <DealProgress />}
       {/* ponytail: the other workspace tables (notes, messages...) have no storage yet; each gets its own table when built. */}
       {group.cols && <Table cols={group.cols} rows={group.rows ?? []} />}
       {group.buttons && (
@@ -325,7 +327,7 @@ function Overview({ deal, view, setView, message }: { deal: Deal; view: string; 
   );
 }
 
-export function AppDeal({ deal, history, checklist, compliance, tasks, contacts, lenders, activity, tab }: { deal: Deal; history: History; checklist: Checklist; compliance: Compliance; tasks: DealTaskList; contacts: DealContactData; lenders: LenderChoice[]; activity: Activity; tab?: string }) {
+export function AppDeal({ deal, history, checklist, compliance, tasks, contacts, progress, lenders, activity, tab }: { deal: Deal; history: History; checklist: Checklist; compliance: Compliance; tasks: DealTaskList; contacts: DealContactData; progress: Progress; lenders: LenderChoice[]; activity: Activity; tab?: string }) {
   const [view, setView] = useState<"modern" | "classic">("modern");
   const [state, save, saving] = useActionState(async (prev: SaveState | null, form: FormData): Promise<SaveState> => {
     const r = await saveDealAction(deal.id, prev, form);
@@ -355,6 +357,7 @@ export function AppDeal({ deal, history, checklist, compliance, tasks, contacts,
       <ComplianceContext value={compliance}>
       <TasksContext value={tasks}>
       <DealContactsContext value={contacts}>
+      <ProgressContext value={progress}>
       <Values value={values}>
         {/* Not action={save}: React resets the form after an action, and selects reset to their mount-time value, which wiped saved choices. */}
         <form
@@ -385,6 +388,7 @@ export function AppDeal({ deal, history, checklist, compliance, tasks, contacts,
           </div>
         </form>
       </Values>
+      </ProgressContext>
       </DealContactsContext>
       </TasksContext>
       </ComplianceContext>

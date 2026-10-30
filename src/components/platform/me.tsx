@@ -1,10 +1,9 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { ChevronDown, CircleUserRound, GitBranch, Settings, ShieldCheck } from "lucide-react";
+import { ChevronDown, CircleUserRound, Settings, ShieldCheck } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
-import { placeholderWorkflows, type Workflow } from "./placeholder-data";
 
 const useMe = () => useSession().data?.user ?? {};
 import { AppShell } from "./shell";
@@ -282,87 +281,6 @@ function TermModal({ term, close, save }: { term: Term; close: () => void; save:
         <div className="flex gap-3">{[true, false].map((a) => <label key={String(a)} className="flex items-center gap-1"><input type="radio" checked={t.active === a} onChange={() => setT({ ...t, active: a })} /> {a ? "Active" : "Inactive"}</label>)}</div>
         {err && <p className="text-[#a94442]">Name is required.</p>}
       </div>
-    </Modal>
-  );
-}
-
-export function AppWorkflows() {
-  const me = useMe().name ?? "";
-  const [flows, setFlows] = useState(placeholderWorkflows);
-  const [stages, setStages] = useState(["New Deal", "Approved", "Funded"]);
-  const [show, setShow] = useState<"Active" | "Inactive" | "All">("Active");
-  const [search, setSearch] = useState("");
-  const [modal, setModal] = useState<"stage" | Workflow | null>(null);
-  const q = search.toLowerCase();
-  const visible = flows.filter((f) => (show === "All" || f.active === (show === "Active")) && (!q || f.title.toLowerCase().includes(q)));
-  const groups = [...stages, ""].map((s) => ({ stage: s, rows: visible.filter((f) => f.stage === s) }));
-  return (
-    <AppShell>
-      <PageHeader icon={GitBranch} title="Workflows" crumbs={[["Workflows"]]} />
-      <div className={panel}>
-        <div className="flex flex-wrap items-center gap-2 px-[15px] py-2.5 text-[12.6px]">
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search workflows..." className={cn(input, "h-[34px] w-[220px]")} />
-          <label className="flex items-center gap-1">Show:
-            <select value={show} onChange={(e) => setShow(e.target.value as typeof show)} className={cn(input, "w-[100px]")}>{["Active", "Inactive", "All"].map((o) => <option key={o}>{o}</option>)}</select>
-          </label>
-          <button onClick={() => setModal("stage")} className={cn(greyBtn, "ml-auto px-3 py-1")}>Add Stage</button>
-          <button onClick={() => setModal({ id: Date.now(), stage: "", title: "", assignee: me, time: "Immediately", trigger: "Deal Status: New", action: "Send Email", active: true, createdBy: me, for: "User" })} className={cn(greenBtn, "px-3 py-1")}>Add Workflow</button>
-        </div>
-        <div className="space-y-4 p-[15px] pt-0">
-          {groups.map((g) => (
-            <div key={g.stage || "none"}>
-              <h3 className="mb-1 font-semibold text-[#666]">{g.stage || "Not Staged"}</h3>
-              {!g.stage && <p className="mb-1 text-xs text-[#999]">These workflows have not been assigned to a stage.</p>}
-              <Grid min={900} head={["Title", "Assignee", "Time From Trigger", "Trigger", "Action", "Status", "Created By", "For"]} rows={g.rows.map((f) => [
-                <button key="t" onClick={() => setModal(f)} className="text-left text-[#428bca] hover:underline">{f.title}</button>,
-                f.assignee, f.time, f.trigger, f.action,
-                <button key="s" onClick={() => setFlows(flows.map((x) => (x.id === f.id ? { ...x, active: !x.active } : x)))} className={cn("rounded px-1.5 py-0.5 text-[11px] text-white", f.active ? "bg-[#5cb85c]" : "bg-[#999]")}>{f.active ? "Active" : "Inactive"}</button>,
-                f.createdBy, f.for,
-              ])} />
-            </div>
-          ))}
-        </div>
-      </div>
-      {modal === "stage" && <StageModal close={() => setModal(null)} add={(s) => { setStages([...stages, s]); setModal(null); }} />}
-      {modal && modal !== "stage" && <WorkflowModal flow={modal} stages={stages} close={() => setModal(null)} save={(f) => { setFlows(flows.some((x) => x.id === f.id) ? flows.map((x) => (x.id === f.id ? f : x)) : [...flows, f]); setModal(null); }} />}
-    </AppShell>
-  );
-}
-
-function StageModal({ close, add }: { close: () => void; add: (s: string) => void }) {
-  const [name, setName] = useState("");
-  return (
-    <Modal title="Add Stage" close={close} footer={<>
-      <button onClick={() => name.trim() && add(name.trim())} className={cn(greenBtn, "px-3 py-1.5 text-[12.6px]")}>Add</button>
-      <button onClick={close} className={cn(greyBtn, "px-3 py-1.5 text-[12.6px]")}>Cancel</button>
-    </>}>
-      <label><span className={label}>Stage Name</span><input autoFocus value={name} onChange={(e) => setName(e.target.value)} className={input} /></label>
-    </Modal>
-  );
-}
-
-function WorkflowModal({ flow, stages, close, save }: { flow: Workflow; stages: string[]; close: () => void; save: (f: Workflow) => void }) {
-  const [f, setF] = useState(flow);
-  const [err, setErr] = useState(false);
-  const sel = (k: keyof Workflow, name: string, options: string[]) => (
-    <label><span className={label}>{name}</span><select value={String(f[k])} onChange={(e) => setF({ ...f, [k]: e.target.value })} className={input}>{options.map((o) => <option key={o} value={o}>{o || "Not Staged"}</option>)}</select></label>
-  );
-  return (
-    <Modal title={flow.title ? "Edit Workflow" : "Add Workflow"} close={close} footer={<>
-      <button onClick={() => (f.title.trim() ? save(f) : setErr(true))} className={cn(greenBtn, "px-3 py-1.5 text-[12.6px]")}>Save</button>
-      <button onClick={close} className={cn(greyBtn, "px-3 py-1.5 text-[12.6px]")}>Cancel</button>
-    </>}>
-      <div className="grid gap-3 text-[12.6px] sm:grid-cols-2">
-        <label className="sm:col-span-2"><span className={label}>Title</span><input value={f.title} onChange={(e) => { setF({ ...f, title: e.target.value }); setErr(false); }} className={cn(input, err && "border-[#d9534f]")} /></label>
-        {sel("stage", "Stage", ["", ...stages])}
-        {sel("assignee", "Assignee", [flow.assignee])}
-        {sel("trigger", "Trigger", ["Deal Status: New", "Deal Status: Submitted", "Deal Status: Approved", "Deal Status: Funded", "Contact Birthday", "Mortgage Maturity", "Condition Uploaded"])}
-        {sel("time", "Time From Trigger", ["Immediately", "1 day after", "3 days after", "7 days after", "30 days before", "On date"])}
-        {sel("action", "Action", ["Send Email", "Send SMS", "Create Task", "Create Reminder", "Post to Message Centre"])}
-        {sel("for", "For", ["User", "Team", "Office", "Organization"])}
-        <label className="flex items-center gap-2"><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> Active</label>
-      </div>
-      {err && <p className="mt-2 text-[12.6px] text-[#a94442]">Title is required.</p>}
     </Modal>
   );
 }

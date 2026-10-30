@@ -7,9 +7,10 @@ import type { Actor } from "./access.ts";
 import { listContacts } from "./contacts.ts";
 import { createDeal, saveDeal } from "./deals.ts";
 import { openDb, type Db } from "./db.ts";
-import { auditLog, users } from "./schema.ts";
+import { completeStep, createStepTasks, DEAL_TYPE, dealProgress, reopenStep, saveProgressStep } from "./progress.ts";
+import { auditLog, tasks, users } from "./schema.ts";
 import { seedIfEmpty } from "./seed.ts";
-import { bulkTasks, calendarTasks, createTask, dealReminders, dealTasks, myDay, openTaskCount, reminderLevel, removeTask, updateTask } from "./tasks.ts";
+import { bulkTasks, calendarTasks, createTask, dealReminders, dealTasks, myDay, openTaskCount, reminderLevel, removeTask, today, updateTask } from "./tasks.ts";
 
 let db: Db;
 const as: Record<string, Actor> = {};
@@ -118,4 +119,42 @@ test("deal reminders: level from the nearer date; ticking conditions met drops t
   await saveDeal(db, as["ottawa.agent"], deal.id, { "conditions//Lender Conditions Met": "Yes" });
   assert.equal(await level(), "Notice");
   assert.ok(!(await dealReminders(db, as.agent, NOW)).some((d) => d.id === deal.id)); // other office
+});
+
+test("progress steps: a checklist per deal type, prerequisites, tasks from todos, scope", async () => {
+  const step = (x = {}) => ({ dealType: "Purchase", name: "Step", position: 0, days: 0, milestone: false, todos: [], autoMessage: "", prerequisiteId: null, active: true, ...x });
+  await assert.rejects(saveProgressStep(db, as.agent, null, step()), /organization admin/);
+  const appraisal = await saveProgressStep(db, as.admin, null, step({ name: "Order appraisal", position: 1, days: 2, todos: ["Book appraiser", " "], autoMessage: "Your appraisal is booked." }));
+  const approval = await saveProgressStep(db, as.admin, null, step({ name: "Lender approval", position: 2, days: 10, milestone: true, prerequisiteId: appraisal }));
+  await saveProgressStep(db, as.admin, null, step({ dealType: "Refinance", name: "Payout statement" }));
+  await assert.rejects(saveProgressStep(db, as.admin, appraisal, step({ name: "Order appraisal", prerequisiteId: approval })), /each need/);
+  await assert.rejects(saveProgressStep(db, as.admin, appraisal, step({ dealType: "Refinance" })), /another deal type/);
+
+  const deal = await newApplication();
+  await saveDeal(db, as.agent, deal.id, { [DEAL_TYPE]: "Purchase" });
+  const p = await dealProgress(db, as.agent, deal.id);
+  assert.deepEqual(p.steps.map((s) => [s.name, s.prerequisite]), [["Order appraisal", null], ["Lender approval", "Order appraisal"]]);
+  assert.equal(p.steps[0].target, addDays(today(), 2));
+
+  await assert.rejects(completeStep(db, as.agent, deal.id, approval, today()), /Complete "Order appraisal" first/);
+  await assert.rejects(createStepTasks(db, as.agent, deal.id, approval), /Complete "Order appraisal" first/);
+  await assert.rejects(completeStep(db, as.agent, deal.id, appraisal, "2026-02-30"), /date/);
+  await completeStep(db, as.agent, deal.id, appraisal, "2026-10-01");
+  await assert.rejects(completeStep(db, as.agent, deal.id, appraisal, "2026-10-01"), /already complete/);
+  await completeStep(db, as.agent, deal.id, approval, today());
+  await assert.rejects(reopenStep(db, as.agent, deal.id, appraisal), /Reopen the steps/);
+  await reopenStep(db, as.agent, deal.id, approval);
+
+  await createStepTasks(db, as.agent, deal.id, appraisal);
+  const made = await db.select().from(tasks).where(eq(tasks.stepId, appraisal));
+  assert.deepEqual(made.map((t) => [t.type, t.title, t.dueDate, t.assigneeId]).sort(), [
+    ["email", "Send: Order appraisal", addDays(today(), 2), as.agent.id],
+    ["followup", "Book appraiser", addDays(today(), 2), as.agent.id],
+  ]);
+  await assert.rejects(createStepTasks(db, as.agent, deal.id, appraisal), /already exist/);
+  assert.equal((await dealProgress(db, as.agent, deal.id)).steps[0].tasksCreated, true);
+
+  const other = as["ottawa.agent"];
+  await assert.rejects(dealProgress(db, other, deal.id), /not found/);
+  await assert.rejects(completeStep(db, other, deal.id, approval, today()), /not found/);
 });

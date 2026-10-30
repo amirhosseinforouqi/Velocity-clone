@@ -17,7 +17,7 @@ const TIME = /^([01]\d|2[0-3]):[0-5]\d(:00)?$/;
 
 // ponytail: one time zone for everyone; store a zone per user or office once an office opens outside it.
 export const TIME_ZONE = process.env.TIME_ZONE ?? "America/Toronto";
-export const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE }).format(new Date());
+export const today = (d = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE }).format(d);
 
 // A task is visible to its assignee, its creator, and anyone who can see its deal. The deal is joined only when
 // the actor can see it, so deal and borrower details never leak through a task.

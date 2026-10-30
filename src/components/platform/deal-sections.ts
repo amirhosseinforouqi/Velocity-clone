@@ -8,7 +8,7 @@ export type Group = {
   rows?: string[][];
   buttons?: string[];
   blank?: boolean; // ignore placeholder values (fields repeat labels used elsewhere)
-  custom?: "conditions" | "reminders" | "tasks" | "compliance" | "contacts" | "referrals"; // rendered by its own component instead of cols/rows
+  custom?: "conditions" | "reminders" | "tasks" | "compliance" | "contacts" | "referrals" | "progress"; // rendered by its own component instead of cols/rows
 };
 export type Section = { id: string; title: string; groups: Group[] };
 
@@ -28,6 +28,7 @@ const expenses = ["Hydro", "Heating Cost", "Management", "Repairs", "Insurance",
 export const sections: Section[] = [
   { id: "reminders", title: "Reminders", groups: [{ custom: "reminders" }] },
   { id: "tasks", title: "Deal Specific Tasks", groups: [{ custom: "tasks" }] },
+  { id: "progress", title: "Progress", groups: [{ custom: "progress" }] },
   { id: "pinnedNotes", title: "Pinned Notes", groups: [{ cols: ["Entry Date", "Note", "Username"] }] },
   { id: "notes", title: "Notes", groups: [{ cols: ["Entry Date", "Note", "Username", "Actions"], buttons: ["Add Note"] }] },
   {
@@ -194,6 +195,7 @@ export const dealTabs = [
   { slug: "referrals", label: "Referrals", sections: ["referral"] },
   { slug: "contacts", label: "Deal Contacts", sections: ["dealContacts"] },
   { slug: "remindersAndTasks", label: "Reminders & Tasks", sections: ["reminders", "tasks"] },
+  { slug: "progress", label: "Progress", sections: ["progress"] },
   { slug: "activity", label: "Activity", sections: [] as string[] },
   { slug: "clientPortal", label: "Client Portal", sections: [] as string[] },
 ];

@@ -152,8 +152,6 @@ export const placeholderMessages: Message[] = [];
 export type NewApp = { id: number; office: string; firstName: string; lastName: string; amount: number; closingDate: string; conditionsDate: string; entryDate: string; source: string };
 export const placeholderNewApps: NewApp[] = [];
 
-export type Workflow = { id: number; stage: string; title: string; assignee: string; time: string; trigger: string; action: string; active: boolean; createdBy: string; for: string };
-export const placeholderWorkflows: Workflow[] = [];
 
 export const reports = [
   { slug: "build", title: "Build a Report" },

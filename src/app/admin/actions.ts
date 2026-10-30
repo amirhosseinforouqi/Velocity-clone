@@ -8,6 +8,7 @@ import {
 } from "@/server/admin";
 import { ValidationError } from "@/server/contacts";
 import { getDb } from "@/server/db";
+import { saveProgressStep, type StepInput } from "@/server/progress";
 import { createLender, deleteProduct, saveLender, saveProduct, setLenderHidden, type LenderInput } from "@/server/lenders";
 
 type Result = { error?: string; id?: string };
@@ -73,6 +74,10 @@ export async function saveConsentAction(officeId: string, id: string | null, c: 
 
 export async function deleteConsentAction(id: string) {
   return run((db, actor) => deleteConsent(db, actor, id));
+}
+
+export async function saveProgressStepAction(id: string | null, input: StepInput) {
+  return run((db, actor) => saveProgressStep(db, actor, id, input));
 }
 
 export async function saveConditionAction(id: string | null, c: { name: string; rule: Record<string, string[]>; active: boolean }) {

@@ -136,7 +136,7 @@ const meLinks: [string, string][] = [
   ["Profile", "/user/profile"],
   ["Two-Step Verification", "/user/mfa"],
   ["Compliance Settings", "/account/settings/compliance"],
-  ["Workflows", "/workflows"],
+  ["Progress Steps", "/workflows"],
 ];
 
 type Menu = "calc" | "help" | "tasks" | "apps" | "msgs" | "rem" | "me" | null;

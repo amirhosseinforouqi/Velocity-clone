@@ -333,4 +333,9 @@ Every slice uses synthetic `@keyway.test` data. Nothing sends email or SMS on it
   - Not built: a Rejected count. Keyway conditions have no rejected state (Received is the in-between state instead).
   - Tests: `server.test.ts`. Verified in the browser as an agent.
 
-- Slice 5 done: contact company/role/sub-role (admin-defined sub-roles), Deal Contacts tab, Referral Source picker on Referrals. Tests, typecheck and lint pass; browser check not run yet (unverified in the UI).
+- Slice 5 done: contact company/role/sub-role (admin-defined sub-roles), Deal Contacts tab, Referral Source picker on Referrals. Tests, typecheck and lint pass; checked in the browser: adding a contact on the Deal Contacts tab and the Referrals picker work.
+- **Slice 6 done** (#7, #17, #25).
+  - Org admins define progress steps per Application Type on Progress Steps (`/workflows`, replacing the placeholder Workflows page): name, order, days, milestone, todos, auto message, prerequisite, active. Migration 0013 (`progress_steps`, `deal_steps`, `tasks.step_id`).
+  - Each deal has a Progress tab: the steps for its Application Type with a target date (days from the deal's creation), Complete with a date and Reopen. Prerequisites are enforced on the server, both ways.
+  - Create Tasks turns a step's todos into follow-up tasks and its auto message into an email reminder task. Keyway never sends the auto message.
+  - Tests: `tasks.test.ts`. Checked in the browser as an admin: adding a step, Create Tasks, Complete, Reopen; as an agent the page is read-only.

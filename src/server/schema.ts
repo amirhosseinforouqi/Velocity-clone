@@ -1,4 +1,4 @@
-import { boolean, date, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, time, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, date, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, time, timestamp, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 const id = () => uuid("id").primaryKey().defaultRandom();
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -185,6 +185,31 @@ export const dealContacts = pgTable("deal_contacts", {
   createdAt: createdAt(),
 }, (t) => [uniqueIndex("deal_contacts_uq").on(t.dealId, t.contactId, t.role)]);
 
+// Each deal type's checklist (RevoDoc's progress templates). Steps are deactivated, never deleted, so deals keep their history.
+export const progressSteps = pgTable("progress_steps", {
+  id: id(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+  dealType: text("deal_type").notNull(), // an Application Type option
+  name: text("name").notNull(),
+  position: integer("position").notNull().default(0),
+  days: integer("days").notNull().default(0), // target = the day the deal was created + days
+  milestone: boolean("milestone").notNull().default(false),
+  todos: jsonb("todos").$type<string[]>().notNull().default([]),
+  autoMessage: text("auto_message").notNull().default(""),
+  prerequisiteId: uuid("prerequisite_id").references((): AnyPgColumn => progressSteps.id),
+  active: boolean("active").notNull().default(true),
+  createdAt: createdAt(),
+}, (t) => [index("progress_steps_org_type_idx").on(t.organizationId, t.dealType, t.position)]);
+
+// A step completed on a deal. Reopening deletes the row; the audit log keeps it.
+export const dealSteps = pgTable("deal_steps", {
+  dealId: uuid("deal_id").notNull().references(() => deals.id),
+  stepId: uuid("step_id").notNull().references(() => progressSteps.id),
+  completedOn: date("completed_on").notNull(),
+  completedBy: uuid("completed_by").notNull().references(() => users.id),
+  createdAt: createdAt(),
+}, (t) => [primaryKey({ columns: [t.dealId, t.stepId] })]);
+
 // File metadata; the bytes live in storage under the document id (storage.ts).
 export const documents = pgTable("documents", {
   id: id(),
@@ -213,6 +238,7 @@ export const tasks = pgTable("tasks", {
   dueDate: date("due_date").notNull(),
   dueTime: time("due_time"), // local wall-clock time; null = all day
   notes: text("notes"),
+  stepId: uuid("step_id").references(() => progressSteps.id), // made by Create Tasks on a progress step
   doneAt: timestamp("done_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

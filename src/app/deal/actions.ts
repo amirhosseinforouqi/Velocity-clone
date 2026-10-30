@@ -9,6 +9,7 @@ import { createContact, setCasl, ValidationError } from "@/server/contacts";
 import { getDb } from "@/server/db";
 import type { DealStatus } from "@/server/deal-status";
 import { addDealContact, createDeal, deleteDeal, moveDeal, newDealValues, removeDealContact, restoreDeal, saveDeal } from "@/server/deals";
+import { completeStep, createStepTasks, reopenStep } from "@/server/progress";
 import { bulkTasks, createTask, dealReminders, myDay, removeTask, today, updateTask } from "@/server/tasks";
 import { lenderChoices } from "@/server/lenders";
 import { validateDeal, type Problem } from "@/server/validate";
@@ -102,6 +103,18 @@ export async function updateTaskAction(id: string, input: Record<string, unknown
 
 export async function addDealContactAction(dealId: string, contactId: string, role: string) {
   return run(async () => void (await addDealContact(await getDb(), await requireActor(), dealId, contactId, role)));
+}
+
+export async function completeStepAction(dealId: string, stepId: string, on: string) {
+  return run(async () => completeStep(await getDb(), await requireActor(), dealId, stepId, on));
+}
+
+export async function reopenStepAction(dealId: string, stepId: string) {
+  return run(async () => reopenStep(await getDb(), await requireActor(), dealId, stepId));
+}
+
+export async function createStepTasksAction(dealId: string, stepId: string) {
+  return run(async () => createStepTasks(await getDb(), await requireActor(), dealId, stepId));
 }
 
 export async function removeDealContactAction(id: string) {

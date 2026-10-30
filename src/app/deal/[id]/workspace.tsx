@@ -10,6 +10,7 @@ import { listContacts } from "@/server/contacts";
 import { dealActivity, dealHistory, getDeal, listDealContacts } from "@/server/deals";
 import { lenderChoices } from "@/server/lenders";
 import { portalWorkspace } from "@/server/portal";
+import { dealProgress } from "@/server/progress";
 import { dealTasks } from "@/server/tasks";
 
 // Also serves /deal/[id]/[tab]; a missing deal and one the user can't see are both a 404.
@@ -26,5 +27,5 @@ export async function DealWorkspace({ id, tab }: { id: string; tab?: string }) {
     rows: await listDealContacts(db, actor, deal.id),
     choices: (await listContacts(db, actor)).map((c) => ({ id: c.id, name: `${c.firstName} ${c.lastName}`, role: c.role, company: c.company })),
   };
-  return <AppDeal deal={deal} contacts={contacts} history={await dealHistory(db, deal.id)} checklist={await dealChecklist(db, actor, deal.id)} compliance={await dealCompliance(db, actor, deal.id)} tasks={await dealTasks(db, actor, deal.id)} lenders={await lenderChoices(db, deal.organizationId, deal.agentId)} activity={tab === "activity" ? await dealActivity(db, actor, deal.id) : []} tab={tab} />;
+  return <AppDeal deal={deal} contacts={contacts} progress={await dealProgress(db, actor, deal.id)} history={await dealHistory(db, deal.id)} checklist={await dealChecklist(db, actor, deal.id)} compliance={await dealCompliance(db, actor, deal.id)} tasks={await dealTasks(db, actor, deal.id)} lenders={await lenderChoices(db, deal.organizationId, deal.agentId)} activity={tab === "activity" ? await dealActivity(db, actor, deal.id) : []} tab={tab} />;
 }
