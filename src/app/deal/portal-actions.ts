@@ -55,7 +55,7 @@ export const startConversationAction = async (dealId: string, input: { subject: 
 export const replyAction = async (conversationId: string, body: string, fileIds: string[]) => run(({ db, actor }) => staffReply(db, actor, conversationId, body, fileIds));
 export const markReadAction = async (conversationId: string) => run(({ db, actor }) => staffMarkRead(db, actor, conversationId));
 
-export const addNoteAction = async (dealId: string, body: string) => run(({ db, actor }) => addNote(db, actor, dealId, body));
+export const addNoteAction = async (dealId: string, body: string, category: string) => run(({ db, actor }) => addNote(db, actor, dealId, body, category));
 export const assignAction = async (dealId: string, userId: string) => run(({ db, actor }) => assignDeal(db, actor, dealId, userId || null));
 export const purgeDealAction = async (dealId: string) => run(({ db, actor }) => purgeDeal(db, actor, dealId));
 

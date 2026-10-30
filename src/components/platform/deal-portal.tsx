@@ -279,8 +279,8 @@ It stops working on ${l.expires}. You'll choose your own password when you first
       </GridPanel>
 
       <GridPanel title="Staff Notes" tools={<span className="font-semibold text-[#a94442]">Internal: clients never see these</span>}>
-        <NoteForm dealId={id} />
-        <ul className="mt-2 space-y-2">{w.notes.map((n) => <li key={n.id} className="rounded-[3px] bg-[#fcf8e3] p-2"><p className="text-[11px] text-[#888]">{n.by} · {when(n.at)}</p><p className="whitespace-pre-wrap">{n.body}</p></li>)}</ul>
+        <NoteForm dealId={id} categories={w.noteCategories} />
+        <Notes notes={w.notes} />
       </GridPanel>
 
       {w.team && (
@@ -398,14 +398,45 @@ function NewConversationModal({ w, close, open }: { w: PortalWorkspace; close: (
   );
 }
 
-function NoteForm({ dealId }: { dealId: string }) {
+type Note = { id: string; body: string; category: string | null; at: Date; by: string };
+
+// Filters by category and text in the browser; a deal's notes are already all loaded.
+function Notes({ notes }: { notes: Note[] }) {
+  const [cat, setCat] = useState("");
+  const [q, setQ] = useState("");
+  const used = [...new Set(notes.map((n) => n.category ?? "Uncategorized"))].sort();
+  const shown = notes.filter((n) => (!cat || (n.category ?? "Uncategorized") === cat) && n.body.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <>
+      {notes.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <label><span className="sr-only">Filter notes by category</span><select value={cat} onChange={(e) => setCat(e.target.value)} className={cn(area, "w-auto py-1")}><option value="">All Categories</option>{used.map((c) => <option key={c}>{c}</option>)}</select></label>
+          <label><span className="sr-only">Search notes</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search notes" className={cn(area, "w-48 py-1")} /></label>
+          <span className="text-[11px] text-[#888]">{shown.length} of {notes.length}</span>
+        </div>
+      )}
+      <ul className="mt-2 space-y-2">{shown.map((n) => (
+        <li key={n.id} className="rounded-[3px] bg-[#fcf8e3] p-2">
+          <p className="text-[11px] text-[#888]">{n.category && <span className="mr-1 rounded-[3px] bg-[#f0ad4e] px-1 font-semibold text-white">{n.category}</span>}{n.by} · {when(n.at)}</p>
+          <p className="whitespace-pre-wrap">{n.body}</p>
+        </li>
+      ))}</ul>
+    </>
+  );
+}
+
+function NoteForm({ dealId, categories }: { dealId: string; categories: string[] }) {
   const [body, setBody] = useState("");
+  const [category, setCategory] = useState(categories[0] ?? "");
   const run = useRun();
   return (
     <div className="grid gap-2">
       <label><span className="sr-only">New staff note</span><textarea value={body} onChange={(e) => setBody(e.target.value)} rows={2} maxLength={5000} placeholder="Add an internal note" className={area} /></label>
       <Err text={run.error} />
-      <div><button disabled={run.pending || !body.trim()} onClick={() => run.go(() => addNoteAction(dealId, body), () => setBody(""))} className={cn(blueBtn, "px-3 py-1 disabled:opacity-60")}>Add Note</button></div>
+      <div className="flex items-center gap-2">
+        <label><span className="sr-only">Note category</span><select value={category} onChange={(e) => setCategory(e.target.value)} className={cn(area, "w-auto py-1")}>{categories.map((c) => <option key={c}>{c}</option>)}</select></label>
+        <button disabled={run.pending || !body.trim()} onClick={() => run.go(() => addNoteAction(dealId, body, category), () => setBody(""))} className={cn(blueBtn, "px-3 py-1 disabled:opacity-60")}>Add Note</button>
+      </div>
     </div>
   );
 }

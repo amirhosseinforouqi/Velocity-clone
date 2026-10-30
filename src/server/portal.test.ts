@@ -179,7 +179,11 @@ test("isolation: co-applicants, other clients, staff notes and other firms", asy
   await assert.rejects(clientAddVersion(db, primary, shared.id, f.fileId), ValidationError);
 
   // Staff notes never reach a client.
-  await addNote(db, as.agent, deal.id, "Internal: lender prefers the second appraisal");
+  await assert.rejects(addNote(db, as.agent, deal.id, "No category", "Not a category"), /Choose a note category/);
+  await addNote(db, as.agent, deal.id, "Internal: lender prefers the second appraisal", "Lender Correspondence");
+  const ws = await portalWorkspace(db, as.agent, deal.id);
+  assert.ok(ws.noteCategories.includes("Follow Up"));
+  assert.equal(ws.notes.find((n) => n.body.includes("second appraisal"))?.category, "Lender Correspondence");
   assert.ok(!JSON.stringify(await clientDeal(db, co, deal.id)).includes("second appraisal"));
 
   // Another client's application is not found.

@@ -5,7 +5,7 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, like, ne, or, sql } from "drizzle-orm";
 import { dealScope, Forbidden, type Actor } from "./access.ts";
-import { isAdmin, text } from "./admin.ts";
+import { getOrganization, isAdmin, text } from "./admin.ts";
 import { audit } from "./audit.ts";
 import { MAX_UPLOAD, sniffType } from "./conditions.ts";
 import { ValidationError } from "./contacts.ts";
@@ -444,11 +444,13 @@ export async function staffMarkRead(db: Db, actor: Actor, conversationId: string
 
 // ---- Staff notes (never shown to clients) and assignment
 
-export async function addNote(db: Db, actor: Actor, dealId: string, body: unknown) {
-  await staffDeal(db, actor, dealId);
+export async function addNote(db: Db, actor: Actor, dealId: string, body: unknown, category: unknown) {
+  const deal = await staffDeal(db, actor, dealId);
   const b = text(body, "Note", 5000);
+  const c = String(category ?? "");
+  if (!(await getOrganization(db, deal.organizationId)).settings.noteCategories.includes(c)) throw new ValidationError("Choose a note category");
   await db.transaction(async (tx) => {
-    const [n] = await tx.insert(dealNotes).values({ dealId, authorId: actor.id, body: b }).returning({ id: dealNotes.id });
+    const [n] = await tx.insert(dealNotes).values({ dealId, authorId: actor.id, body: b, category: c }).returning({ id: dealNotes.id });
     await portalAudit(tx, actor, dealId, "note", { noteId: n.id });
   });
 }
@@ -490,7 +492,7 @@ export async function portalWorkspace(db: Db, actor: Actor, dealId: string, now 
   const updates = await db.select({ u: progressUpdates, label: progressStages.label, by: users.name }).from(progressUpdates)
     .innerJoin(progressStages, eq(progressStages.id, progressUpdates.stageId)).innerJoin(users, eq(users.id, progressUpdates.authorId))
     .where(eq(progressUpdates.dealId, dealId)).orderBy(desc(progressUpdates.publishedAt)).limit(20);
-  const notes = await db.select({ id: dealNotes.id, body: dealNotes.body, at: dealNotes.createdAt, by: users.name }).from(dealNotes).innerJoin(users, eq(users.id, dealNotes.authorId))
+  const notes = await db.select({ id: dealNotes.id, body: dealNotes.body, category: dealNotes.category, at: dealNotes.createdAt, by: users.name }).from(dealNotes).innerJoin(users, eq(users.id, dealNotes.authorId))
     .where(eq(dealNotes.dealId, dealId)).orderBy(desc(dealNotes.createdAt));
   const checklists = await db.select({ id: documentChecklists.id, name: documentChecklists.name, items: documentChecklists.items }).from(documentChecklists)
     .where(and(eq(documentChecklists.organizationId, deal.organizationId), eq(documentChecklists.active, true))).orderBy(asc(documentChecklists.name));
@@ -508,6 +510,7 @@ export async function portalWorkspace(db: Db, actor: Actor, dealId: string, now 
   return {
     deal: { id: deal.id, number: deal.number, assigneeId: deal.assigneeId, clientStageId: deal.clientStageId },
     emailConfigured: emailConfigured(),
+    noteCategories: (await getOrganization(db, deal.organizationId)).settings.noteCategories,
     canRelease: isAdmin(actor),
     applicants: applicants.map((a) => ({
       contactId: a.contactId, name: `${a.first} ${a.last}`, email: a.email, primary: a.position === 0, portalAccess: a.portalAccess,

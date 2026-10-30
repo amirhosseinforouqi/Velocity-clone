@@ -197,6 +197,10 @@ export async function restoreUser(db: Db, actor: Actor, id: string) {
 export const defaultSettings: OrgSettings = {
   sla: { approved: 7, accepted: 7, waiting_to_close: 30 },
   reminders: { urgent: 2, warning: 7, notice: 14 },
+  noteCategories: [
+    "General", "Admin", "Follow Up", "Urgent", "Advisor Comment", "Customer Phone Call", "Customer Correspondence", "Lender Correspondence",
+    "Appraiser Correspondence", "Legal Phone Call", "Submission Notes",
+  ],
   features: ["Enable eSign", "Enable My Day", "Enable Global Search", "Enable Importer", "Enable Pipeline Report", "Enable Report Creator", "Enable Deal Close Out", "Enable Scenario Builder - Calculators"],
 };
 export const slaStatuses: DealStatus[] = ["approved", "accepted", "waiting_to_close"];
@@ -204,7 +208,7 @@ export const slaStatuses: DealStatus[] = ["approved", "accepted", "waiting_to_cl
 export async function getOrganization(db: Db, organizationId: string) {
   const [o] = await db.select().from(organizations).where(eq(organizations.id, organizationId));
   const s = o.settings;
-  return { id: o.id, name: o.name, settings: { sla: { ...defaultSettings.sla, ...s.sla }, reminders: { ...defaultSettings.reminders, ...s.reminders }, features: s.features ?? defaultSettings.features } };
+  return { id: o.id, name: o.name, settings: { sla: { ...defaultSettings.sla, ...s.sla }, reminders: { ...defaultSettings.reminders, ...s.reminders }, features: s.features ?? defaultSettings.features, noteCategories: s.noteCategories ?? defaultSettings.noteCategories } };
 }
 
 const days = (v: unknown, label: string) => {
@@ -213,7 +217,16 @@ const days = (v: unknown, label: string) => {
   return n;
 };
 
-export async function saveOrganization(db: Db, actor: Actor, input: { name: unknown; sla: Record<string, unknown>; reminders: Record<string, unknown>; features: unknown[] }) {
+// One category per line; blanks and repeats dropped.
+function categories(v: unknown) {
+  const list = [...new Set(String(v ?? "").split("\n").map((c) => c.trim()).filter(Boolean))];
+  if (!list.length) throw new ValidationError("Add at least one note category");
+  if (list.length > 50 || list.some((c) => c.length > 50)) throw new ValidationError("Up to 50 note categories of up to 50 characters each");
+  return list;
+}
+
+// noteCategories omitted keeps the saved list.
+export async function saveOrganization(db: Db, actor: Actor, input: { name: unknown; sla: Record<string, unknown>; reminders: Record<string, unknown>; features: unknown[]; noteCategories?: unknown }) {
   mustOrgAdmin(actor);
   const name = text(input.name, "Name", 100);
   const sla = Object.fromEntries(slaStatuses.map((s) => [s, days(input.sla[s], "SLA days")]));
@@ -221,7 +234,8 @@ export async function saveOrganization(db: Db, actor: Actor, input: { name: unkn
   if (!(r.urgent < r.warning && r.warning < r.notice)) throw new ValidationError("Reminder days must go up: urgent, then warning, then notice");
   const features = orgFeatures.filter((f) => input.features.includes(f));
   const before = await getOrganization(db, actor.organizationId);
-  const settings = { sla, reminders: r, features };
+  const noteCategories = input.noteCategories === undefined ? before.settings.noteCategories : categories(input.noteCategories);
+  const settings = { sla, reminders: r, features, noteCategories };
   await db.transaction(async (tx) => {
     await tx.update(organizations).set({ name, settings }).where(eq(organizations.id, actor.organizationId));
     await audit(tx, actor, "organization", actor.organizationId, "update", { name: before.name, settings: before.settings }, { name, settings });

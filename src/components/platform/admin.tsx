@@ -368,7 +368,7 @@ export function AppUserMatrix({ users, offices, roles }: { users: AdminUserRow[]
 
 // ---- Organization
 
-export type OrgView = { name: string; settings: { sla: Record<string, number>; reminders: { urgent: number; warning: number; notice: number }; features: string[] } };
+export type OrgView = { name: string; settings: { sla: Record<string, number>; reminders: { urgent: number; warning: number; notice: number }; features: string[]; noteCategories: string[] } };
 
 export function AppOrganizationEdit({ org, slaStatuses }: { org: OrgView; slaStatuses: DealStatus[] }) {
   const { submit, footer } = useSave(saveOrganizationAction);
@@ -396,6 +396,13 @@ export function AppOrganizationEdit({ org, slaStatuses }: { org: OrgView; slaSta
             <label key={f} className={cn("flex items-center gap-2 py-1", !match(q, f) && "hidden")}><input type="checkbox" name="features" value={f} defaultChecked={s.features.includes(f)} /> {f}</label>
           ))}</div>
           <p className="mt-2 text-[#999]">Flags are saved; features don&apos;t check them yet.</p>
+        </Box>
+        <Box title="Note Categories">
+          <label className="block max-w-sm">
+            <span className="mb-1 block font-semibold text-[#666]">One per line. Staff pick one for every note.</span>
+            <textarea name="noteCategories" rows={8} defaultValue={s.noteCategories.join("\n")} required className="w-full rounded-[3px] border border-[#ccc] px-2 py-1" />
+          </label>
+          <p className="mt-2 text-[#999]">Removing a category keeps it on notes that already use it.</p>
         </Box>
         {footer()}
       </form>

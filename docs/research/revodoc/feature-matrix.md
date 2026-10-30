@@ -317,3 +317,8 @@ Every slice uses synthetic `@keyway.test` data. Nothing sends email or SMS on it
   - The report builder filters on Program, Term and Rate Type.
   - New Loan/Renewal is covered by the existing Application Type.
   - Tests: `metrics.test.ts`, `reports.test.ts`.
+- **Slice 2 done** (#14, #28).
+  - Notes have a category (migration 0010, `deal_notes.category`); the server rejects any category not in the organization's list.
+  - Admins edit the list under Admin > Organization > Note Categories, one per line; it starts with RevoDoc-style defaults.
+  - Staff Notes on the Client Portal tab: category picker, All Categories filter, text search.
+  - Verified in the browser as an agent. The admin editor is covered by tests only.

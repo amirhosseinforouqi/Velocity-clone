@@ -97,6 +97,12 @@ test("organization settings drive reminder thresholds and SLA targets", async ()
   await saveOrganization(db, as.admin, { ...base, sla: { ...base.sla, approved: 3 }, reminders: { urgent: 1, warning: 3, notice: 5 } });
   const { settings } = await getOrganization(db, as.admin.organizationId);
   assert.deepEqual(settings.features, ["Enable eSign"]);
+  assert.ok(settings.noteCategories.includes("General"), "default note categories until an admin edits them");
+  await assert.rejects(saveOrganization(db, as.admin, { ...base, sla: { ...base.sla, approved: 3 }, reminders: { urgent: 1, warning: 3, notice: 5 }, noteCategories: " \n " }), /at least one/);
+  await saveOrganization(db, as.admin, { ...base, sla: { ...base.sla, approved: 3 }, reminders: { urgent: 1, warning: 3, notice: 5 }, noteCategories: "Urgent\n  Broker Review \nUrgent\n" });
+  assert.deepEqual((await getOrganization(db, as.admin.organizationId)).settings.noteCategories, ["Urgent", "Broker Review"]);
+  await saveOrganization(db, as.admin, { ...base, sla: { ...base.sla, approved: 3 }, reminders: { urgent: 1, warning: 3, notice: 5 } });
+  assert.deepEqual((await getOrganization(db, as.admin.organizationId)).settings.noteCategories, ["Urgent", "Broker Review"], "omitted keeps the list");
   assert.equal(reminderLevel(["2026-03-12"], "2026-03-10", settings.reminders), "Warning");
   assert.equal(reminderLevel(["2026-03-16"], "2026-03-10", settings.reminders), null);
   assert.deepEqual((await slaDays(db, as.admin.organizationId))[0], ["approved", 3]);

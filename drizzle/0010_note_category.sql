@@ -1,0 +1,1 @@
+ALTER TABLE "deal_notes" ADD COLUMN "category" text;

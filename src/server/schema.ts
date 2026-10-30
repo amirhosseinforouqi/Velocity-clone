@@ -4,7 +4,7 @@ const id = () => uuid("id").primaryKey().defaultRandom();
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 
 // SLA targets, reminder thresholds and feature flags; defaults and validation live in admin.ts.
-export type OrgSettings = { sla: Record<string, number>; reminders: { urgent: number; warning: number; notice: number }; features: string[] };
+export type OrgSettings = { sla: Record<string, number>; reminders: { urgent: number; warning: number; notice: number }; features: string[]; noteCategories: string[] };
 
 export const organizations = pgTable("organizations", {
   id: id(),
@@ -464,6 +464,8 @@ export const dealNotes = pgTable("deal_notes", {
   dealId: uuid("deal_id").notNull().references(() => deals.id),
   authorId: uuid("author_id").notNull().references(() => users.id),
   body: text("body").notNull(),
+  // One of the organization's note categories at the time of writing; null on notes written before categories existed.
+  category: text("category"),
   createdAt: createdAt(),
 }, (t) => [index("deal_notes_deal_idx").on(t.dealId)]);
 

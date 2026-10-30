@@ -60,6 +60,7 @@ export async function saveOrganizationAction(_prev: Result | null, form: FormDat
     sla: Object.fromEntries(slaStatuses.map((s) => [s, f[`sla.${s}`]])),
     reminders: { urgent: f["reminders.urgent"], warning: f["reminders.warning"], notice: f["reminders.notice"] },
     features: form.getAll("features"),
+    noteCategories: f.noteCategories,
   }));
 }
 

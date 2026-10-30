@@ -71,6 +71,13 @@
       "when": 1793308334767,
       "tag": "0009_client_temp_password",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793376450707,
+      "tag": "0010_note_category",
+      "breakpoints": true
     }
   ]
 }
