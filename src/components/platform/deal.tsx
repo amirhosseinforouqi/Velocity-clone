@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { deleteDealAction, moveDealAction, saveDealAction } from "@/app/deal/actions";
 import { allowedMoves, dealCode, isReinstate, statusLabel, type DealStatus } from "@/server/deal-status";
-import type { dealHistory, getDeal } from "@/server/deals";
+import type { dealActivity, dealHistory, getDeal } from "@/server/deals";
 import { contractPayment, dealMetrics } from "@/server/metrics";
 import type { DealCompliance as Compliance } from "@/server/compliance";
 import type { LenderChoice } from "@/server/lenders";
@@ -20,6 +20,7 @@ import { AppShell } from "./shell";
 
 type Deal = NonNullable<Awaited<ReturnType<typeof getDeal>>>;
 type History = Awaited<ReturnType<typeof dealHistory>>;
+type Activity = Awaited<ReturnType<typeof dealActivity>>;
 type SaveState = { error?: string; ok?: string; problems?: Problem[] };
 
 const input = "h-[30px] w-full rounded-[3px] border border-[#ccc] bg-white px-2 text-[12.6px] text-[#555] outline-none focus:border-[#66afe9] disabled:bg-[#eee]";
@@ -319,7 +320,7 @@ function Overview({ deal, view, setView, message }: { deal: Deal; view: string; 
   );
 }
 
-export function AppDeal({ deal, history, checklist, compliance, tasks, lenders, tab }: { deal: Deal; history: History; checklist: Checklist; compliance: Compliance; tasks: DealTaskList; lenders: LenderChoice[]; tab?: string }) {
+export function AppDeal({ deal, history, checklist, compliance, tasks, lenders, activity, tab }: { deal: Deal; history: History; checklist: Checklist; compliance: Compliance; tasks: DealTaskList; lenders: LenderChoice[]; activity: Activity; tab?: string }) {
   const [view, setView] = useState<"modern" | "classic">("modern");
   const [state, save, saving] = useActionState(async (prev: SaveState | null, form: FormData): Promise<SaveState> => {
     const r = await saveDealAction(deal.id, prev, form);
@@ -361,6 +362,13 @@ export function AppDeal({ deal, history, checklist, compliance, tasks, lenders, 
           <Overview deal={deal} view={view} setView={setView} message={state ?? undefined} />
           <div className="mx-[25px]">
             {shown.map((s) => <SectionBox key={s.id} id={s.id} title={s.title} groups={s.groups} open={open} />)}
+            {current?.slug === "activity" && (
+              <SectionBox
+                title="Activity"
+                open={open}
+                groups={[{ cols: ["Date", "By", "Action", "Details"], rows: activity.map((a) => [new Date(a.at).toLocaleString("en-CA"), a.by, `${a.entity === "deal" ? "" : `${a.entity} `}${a.action}`.replaceAll("_", " "), a.detail]) }]}
+              />
+            )}
             {!current && (
               <SectionBox
                 title="Status History"

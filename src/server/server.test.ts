@@ -6,10 +6,11 @@ import { Forbidden, type Actor } from "./access.ts";
 import { fieldKey, sections } from "../components/platform/deal-sections.ts";
 import { archiveContact, createContact, getContact, listContacts, setCasl, updateContact, ValidationError } from "./contacts.ts";
 import { allowedMoves, boardStatuses } from "./deal-status.ts";
-import { createDeal, dealCode, dealHistory, deleteDeal, findDealByCode, getDeal, listDeals, listDeletedDeals, moveDeal, restoreDeal, saveDeal } from "./deals.ts";
+import { createDeal, dealActivity, dealCode, dealHistory, deleteDeal, findDealByCode, getDeal, listDeals, listDeletedDeals, moveDeal, restoreDeal, saveDeal } from "./deals.ts";
 import { openDb, type Db } from "./db.ts";
 import { hashPassword, verifyPassword } from "./password.ts";
 import { auditLog, contactConsents, organizations, users } from "./schema.ts";
+import { createTask } from "./tasks.ts";
 import { DEV_PASSWORD, seedIfEmpty } from "./seed.ts";
 import { verifyLogin } from "./users.ts";
 
@@ -145,6 +146,23 @@ test("create validates, links the borrower, and writes history and audit", async
   assert.equal(full?.borrowers[0].id, c.id);
   assert.deepEqual((await dealHistory(db, d.id)).map((h) => [h.from, h.to]), [[null, "new_deal"]]);
   assert.deepEqual((await db.select().from(auditLog).where(eq(auditLog.entityId, d.id))).map((r) => r.action), ["create", "smart_conditions"], "the checklist is audited with the create");
+});
+
+test("deal activity lists edits, moves and child records, only for staff who can see the deal", async () => {
+  const d = await newDeal(as.agent);
+  await saveDeal(db, as.agent, d.id, { "mortgageRequest/Mortgage Breakdown/Application Purpose": "Refinance" });
+  await moveDeal(db, as.agent, d.id, "submitted");
+  await createTask(db, as.agent, { type: "phone", title: "Synthetic follow-up", dealId: d.id, dueDate: "2027-01-10" });
+  const log = await dealActivity(db, as.agent, d.id);
+  const row = (entity: string, action: string) => log.find((r) => r.entity === entity && r.action === action);
+  assert.equal(row("deal", "update")?.detail, "Application Purpose");
+  assert.equal(row("deal", "status")?.detail, "new deal → submitted");
+  assert.equal(row("task", "create")?.detail, "Synthetic follow-up");
+  assert.ok(row("deal", "create") && row("deal", "update")!.by !== "System");
+  assert.ok(log[0].at >= log.at(-1)!.at, "newest first");
+  assert.ok(!JSON.stringify(log).includes("Refinance"), "field values stay out of the activity view");
+  await assert.rejects(dealActivity(db, as["ottawa.agent"], d.id), Forbidden);
+  assert.ok((await dealActivity(db, as.admin, d.id)).length === log.length);
 });
 
 test("status moves follow the rules; park and cancel reinstate to the previous status", async () => {

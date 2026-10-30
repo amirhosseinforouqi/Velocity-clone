@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { fieldKeys } from "../components/platform/deal-sections.ts";
 import { dealScope, Forbidden, type Actor } from "./access.ts";
 import { audit } from "./audit.ts";
@@ -6,7 +6,7 @@ import { applySmartRules } from "./conditions.ts";
 import { getContact, ValidationError } from "./contacts.ts";
 import type { Db } from "./db.ts";
 import { allowedMoves, type DealStatus } from "./deal-status.ts";
-import { contacts, dealBorrowers, deals, dealStatusHistory, users } from "./schema.ts";
+import { auditLog, clients, contacts, dealBorrowers, dealConditions, deals, dealStatusHistory, documents, tasks, users } from "./schema.ts";
 
 export { dealCode } from "./deal-status.ts";
 
@@ -162,6 +162,33 @@ export function dealHistory(db: Db, id: string) {
   return db.select({ id: dealStatusHistory.id, from: dealStatusHistory.from, to: dealStatusHistory.to, at: dealStatusHistory.at, actor: users.name })
     .from(dealStatusHistory).innerJoin(users, eq(users.id, dealStatusHistory.actorId))
     .where(eq(dealStatusHistory.dealId, id)).orderBy(asc(dealStatusHistory.at));
+}
+
+// Everything audited on the deal and its tasks, conditions and documents, newest first, for staff who can see the deal.
+// ponytail: last 500 entries; page it when a deal gets busier than that.
+export async function dealActivity(db: Db, actor: Actor, id: string) {
+  const deal = await mustGet(db, actor, id);
+  const child = (entity: string, t: typeof tasks | typeof dealConditions | typeof documents) =>
+    and(eq(auditLog.entity, entity), inArray(auditLog.entityId, db.select({ id: t.id }).from(t).where(eq(t.dealId, id))));
+  const rows = await db.select({ id: auditLog.id, at: auditLog.at, entity: auditLog.entity, action: auditLog.action, before: auditLog.before, after: auditLog.after, staff: users.name, client: clients.email })
+    .from(auditLog).leftJoin(users, eq(users.id, auditLog.actorId)).leftJoin(clients, eq(clients.id, auditLog.actorClientId))
+    .where(and(
+      eq(auditLog.organizationId, deal.organizationId),
+      or(and(eq(auditLog.entity, "deal"), eq(auditLog.entityId, id)), child("task", tasks), child("condition", dealConditions), child("document", documents)),
+    ))
+    .orderBy(desc(auditLog.at)).limit(500);
+  return rows.map(({ before, after, staff, client, ...r }) => ({ ...r, by: staff ?? client ?? "System", detail: activityDetail(r.action, before, after) }));
+}
+
+// What an entry is about: the item's name, a status move, or which fields changed (labels only, never values).
+function activityDetail(action: string, before: unknown, after: unknown) {
+  const b = (before ?? {}) as Record<string, unknown>;
+  const a = (after ?? {}) as Record<string, unknown>;
+  if (action === "status") return `${b.status ?? ""} → ${a.status ?? ""}`.replaceAll("_", " ");
+  const name = a.name ?? a.title ?? a.fileName ?? b.name ?? b.title ?? b.fileName;
+  if (typeof name === "string") return name;
+  if (action !== "update") return "";
+  return [...new Set(Object.keys({ ...b, ...a }).filter((k) => k !== "updatedAt").map((k) => k.split("/").at(-1)!.replace(/Date$/, " date")))].join(", ");
 }
 
 // Deals are never hard-deleted. Deleting hides the deal everywhere (dealScope skips deleted rows); admins see it under

@@ -322,3 +322,7 @@ Every slice uses synthetic `@keyway.test` data. Nothing sends email or SMS on it
   - Admins edit the list under Admin > Organization > Note Categories, one per line; it starts with RevoDoc-style defaults.
   - Staff Notes on the Client Portal tab: category picker, All Categories filter, text search.
   - Verified in the browser as an agent. The admin editor is covered by tests only.
+- **Slice 3 done** (#18).
+  - New Activity tab on each deal: date, who, action, details for every audit entry on the deal and its tasks, conditions and documents, newest first (`dealActivity` in `src/server/deals.ts`).
+  - Only staff who can see the deal; edits list the changed field labels, never their values.
+  - Not built: RevoDoc's "Deal viewed" entries, since Keyway doesn't log views.

@@ -189,6 +189,7 @@ export const dealTabs = [
   { slug: "mortgageRequests", label: "Mortgage Requests", sections: ["subjectProperty", "mortgageRequest"] },
   { slug: "referrals", label: "Referrals", sections: ["referral"] },
   { slug: "remindersAndTasks", label: "Reminders & Tasks", sections: ["reminders", "tasks"] },
+  { slug: "activity", label: "Activity", sections: [] as string[] },
   { slug: "clientPortal", label: "Client Portal", sections: [] as string[] },
 ];
 
