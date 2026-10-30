@@ -39,7 +39,7 @@ import { logout } from "@/app/login/actions";
 import { cn } from "@/lib/utils";
 import { dealTabs } from "./deal-sections";
 import { dealCode } from "@/server/deal-status";
-import { placeholderNewApps, placeholderRecentDeals } from "./placeholder-data";
+import { placeholderNewApps } from "./placeholder-data";
 import { CalculatorModal, calculators, type CalcKind } from "./calculators";
 import { AddModal, type AddKind } from "./add";
 
@@ -106,7 +106,7 @@ const menuItems: MenuItem[] = [
     label: "Previous Deals",
     icon: FileCheck,
     expand: true,
-    children: placeholderRecentDeals.map((d) => ({ label: `${d.loanCode} - ${d.name}`, href: `/deal?loanCode=${d.loanCode}` })),
+    children: [], // ponytail: recently opened deals are not tracked yet
   },
   { label: "Tools", icon: Wrench, expand: true, children: [{ label: "Importer", href: "/tools/importer" }] },
   { label: "Historical Deals", icon: History, href: "/deals/historical" },

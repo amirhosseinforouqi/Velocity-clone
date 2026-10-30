@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils";
 import { createContactAction, findDuplicatesAction } from "@/app/contacts/actions";
 import { createContactDealAction, myLenderChoicesAction } from "@/app/deal/actions";
 import type { LenderChoice } from "@/server/lenders";
-import { placeholderAgents, type Contact } from "./placeholder-data";
+import { useSession } from "next-auth/react";
+import type { Contact } from "./placeholder-data";
 import { blueBtn, greenBtn, greyBtn, input, label, Modal } from "./ui";
 
 export type AddKind = "clientExperience" | "application" | "contact" | "lead";
@@ -45,9 +46,7 @@ function Field({ text, children, wide }: { text: string; children: React.ReactNo
 
 function AgentSelect() {
   return (
-    <select className={input} defaultValue={placeholderAgents[0]}>
-      {placeholderAgents.map((a) => <option key={a}>{a}</option>)}
-    </select>
+    <select className={input}><option>{useSession().data?.user?.name}</option></select>
   );
 }
 
@@ -197,6 +196,7 @@ const groups = ["Purchase Documents Group", "Rental Documents Group", "Existing 
 const conditions = ["Letter of Employment", "Recent Pay Stub", "Notice of Assessment", "Purchase Agreement", "Down Payment Verification", "Void Cheque"];
 
 function ClientExperienceModal({ close }: { close: () => void }) {
+  const me = useSession().data?.user?.name ?? "";
   const [step, setStep] = useState(0);
   const [borrowers, setBorrowers] = useState<Borrower[]>([]);
   const [primary, setPrimary] = useState(0);
@@ -314,7 +314,7 @@ function ClientExperienceModal({ close }: { close: () => void }) {
           </Field>
           <Field text="EMAIL SUBJECT LINE"><input value={subject} onChange={(e) => setSubject(e.target.value)} className={input} /></Field>
           <Field text="EMAIL BODY CONTENT"><textarea value={body} onChange={(e) => setBody(e.target.value)} rows={6} className={cn(input, "h-auto py-1")} /></Field>
-          <Field text="EMAIL SIGNATURE"><textarea rows={3} defaultValue={`${placeholderAgents[0]}\nMortgage Agent`} className={cn(input, "h-auto py-1")} /></Field>
+          <Field text="EMAIL SIGNATURE"><textarea rows={3} defaultValue={`${me}\nMortgage Agent`} className={cn(input, "h-auto py-1")} /></Field>
           <div>
             <span className={label}>ATTACHMENTS</span>
             <label

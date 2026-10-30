@@ -2,8 +2,11 @@
 
 import { useState, type ReactNode } from "react";
 import { ChevronDown, CircleUserRound, GitBranch, Settings, ShieldCheck } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
-import { placeholder, placeholderAgents, placeholderWorkflows, type Workflow } from "./placeholder-data";
+import { placeholderWorkflows, type Workflow } from "./placeholder-data";
+
+const useMe = () => useSession().data?.user ?? {};
 import { AppShell } from "./shell";
 import { blueBtn, greenBtn, greyBtn, Grid, input, label, Modal, PageHeader, panel, redBtn } from "./ui";
 
@@ -42,7 +45,6 @@ export function People({ placeholderText, initial = [] }: { placeholderText: str
       {people.map((p) => <span key={p} className="flex items-center gap-1 rounded bg-[#428bca] px-2 py-0.5 text-white">{p}<button onClick={() => setPeople(people.filter((x) => x !== p))} aria-label={`Remove ${p}`}>×</button></span>)}
       <select value="" onChange={(e) => e.target.value && setPeople([...people, e.target.value])} className="h-[24px] flex-1 text-[12.6px] text-[#999] outline-none" aria-label={placeholderText}>
         <option value="">{placeholderText}</option>
-        {placeholderAgents.slice(1).filter((a) => !people.includes(a)).map((a) => <option key={a}>{a}</option>)}
       </select>
     </div>
   );
@@ -67,6 +69,7 @@ const apps = [
 ];
 
 export function AppUserSettings() {
+  const me = useMe().name ?? "";
   const [connected, setConnected] = useState<string[]>(["Google"]);
   const [saved, setSaved] = useState(false);
   const [mail, setMail] = useState("Gmail");
@@ -122,8 +125,8 @@ export function AppUserSettings() {
         <div className="grid sm:grid-cols-3">{["Pre-Approvals", "Birthdays", "Anniversaries", "Maturities", "Closing Dates", "Subject Removal Dates", "Pre-Approval Rate Expiries"].map((c) => <Check key={c} on>{c}</Check>)}</div>
       </Box>
       <Box title="Email Options">
-        <Field name="Tag address (BCC to file emails to deals)" value="dropbox-demo0001@example.com" />
-        <label className="mt-3 block"><span className={label}>Signature</span><textarea rows={4} defaultValue={`${placeholder.userName}\nMortgage Agent\n(555) 010-0000`} className={cn(input, "h-auto py-1")} /></label>
+        <Field name="Tag address (BCC to file emails to deals)" />
+        <label className="mt-3 block"><span className={label}>Signature</span><textarea rows={4} defaultValue={`${me}\nMortgage Agent`} className={cn(input, "h-auto py-1")} /></label>
         <p className="mt-1 text-[#999]">Please use PNG images for signatures.</p>
       </Box>
       <Box title="Conditions" open={false}>
@@ -156,26 +159,28 @@ export function AppUserSettings() {
 }
 
 export function AppUserProfile() {
+  const { name = "", email = "" } = useMe();
+  const [first, ...rest] = (name ?? "").split(" ");
   const [saved, setSaved] = useState(false);
   const [theme, setTheme] = useState("Default");
   const [templates, setTemplates] = useState(["Purchase - Standard"]);
   const [newTpl, setNewTpl] = useState("");
   const [lang, setLang] = useState<"English" | "Français">("English");
   const [copied, setCopied] = useState(false);
-  const url = "https://portal.example.com/alex-morgan";
+  const url = ""; // ponytail: no public profile page yet
   return (
     <AppShell>
       <PageHeader icon={CircleUserRound} title="User Profile" crumbs={[["User"], ["User Profile"]]} />
       <Box title="Details">
         <div className="grid gap-3 sm:grid-cols-3">
-          <Field name="First Name" value={placeholder.userName.split(" ")[0]} /><Field name="Last Name" value={placeholder.userName.split(" ")[1]} /><Field name="Email" type="email" value="alex.morgan@example.com" />
-          <Field name="Website" value="https://example.com" /><Field name="Home Phone" /><Field name="Cell Phone" value="(555) 010-0000" />
-          <Field name="Business Phone" /><Field name="Fax Number" /><Field name="Company Name" value="Sample Mortgage Group" />
-          <Field name="Job Title" value="Mortgage Agent" /><Field name="License Number" value="M00000000" /><Pick name="Language" options={["English", "Français"]} />
+          <Field name="First Name" value={first} /><Field name="Last Name" value={rest.join(" ")} /><Field name="Email" type="email" value={email ?? ""} />
+          <Field name="Website" /><Field name="Home Phone" /><Field name="Cell Phone" />
+          <Field name="Business Phone" /><Field name="Fax Number" /><Field name="Company Name" />
+          <Field name="Job Title" value="Mortgage Agent" /><Field name="License Number" /><Pick name="Language" options={["English", "Français"]} />
         </div>
       </Box>
       <Box title="Address">
-        <div className="grid gap-3 sm:grid-cols-2"><Field name="Address Line 1" value="100 Example St" /><Field name="Address Line 2" value="Suite 200" /><Field name="City" value="Toronto" /><Pick name="Province" options={["ON", "BC", "AB", "QC", "MB", "SK", "NS", "NB", "NL", "PE"]} /><Field name="Postal Code" value="A1A 1A1" /></div>
+        <div className="grid gap-3 sm:grid-cols-2"><Field name="Address Line 1" /><Field name="Address Line 2" /><Field name="City" /><Pick name="Province" options={["ON", "BC", "AB", "QC", "MB", "SK", "NS", "NB", "NL", "PE"]} /><Field name="Postal Code" /></div>
       </Box>
       <Box title="Keyway CRM Profile">
         <div className="mb-3 flex items-center gap-3"><CircleUserRound className="size-14 text-[#ccc]" /><button className={cn(blueBtn, "px-3 py-1")}>Upload</button><button className={cn(greyBtn, "px-3 py-1")}>Remove</button><span className="text-[#999]">For best results use a square image at least 200×200px.</span></div>
@@ -190,7 +195,7 @@ export function AppUserProfile() {
         <Check on>EZ Account Access: clients sign in with a one-time code</Check>
         <Check>Referral section</Check>
         <Check>Life insurance section</Check>
-        <div className="mt-3 flex flex-wrap items-center gap-2"><span className="font-semibold">Your URL:</span><code className="rounded bg-[#f5f5f5] px-2 py-1">{url}</code><button onClick={() => { void navigator.clipboard?.writeText(url); setCopied(true); }} className={cn(greyBtn, "px-2 py-1")}>{copied ? "Copied!" : "Copy"}</button></div>
+        <div className="mt-3 flex flex-wrap items-center gap-2"><span className="font-semibold">Your URL:</span><code className="rounded bg-[#f5f5f5] px-2 py-1">{url || "Not set up yet"}</code><button disabled={!url} onClick={() => { void navigator.clipboard?.writeText(url); setCopied(true); }} className={cn(greyBtn, "px-2 py-1")}>{copied ? "Copied!" : "Copy"}</button></div>
       </Box>
       <Box title="Client Experience Templates">
         {templates.length ? <ul className="mb-3 list-disc pl-5">{templates.map((t) => <li key={t}>{t} <button onClick={() => setTemplates(templates.filter((x) => x !== t))} className="ml-2 text-[#d9534f]">Remove</button></li>)}</ul> : <p className="mb-3 text-[#999]">No templates. Not to worry, add a template below.</p>}
@@ -282,6 +287,7 @@ function TermModal({ term, close, save }: { term: Term; close: () => void; save:
 }
 
 export function AppWorkflows() {
+  const me = useMe().name ?? "";
   const [flows, setFlows] = useState(placeholderWorkflows);
   const [stages, setStages] = useState(["New Deal", "Approved", "Funded"]);
   const [show, setShow] = useState<"Active" | "Inactive" | "All">("Active");
@@ -300,7 +306,7 @@ export function AppWorkflows() {
             <select value={show} onChange={(e) => setShow(e.target.value as typeof show)} className={cn(input, "w-[100px]")}>{["Active", "Inactive", "All"].map((o) => <option key={o}>{o}</option>)}</select>
           </label>
           <button onClick={() => setModal("stage")} className={cn(greyBtn, "ml-auto px-3 py-1")}>Add Stage</button>
-          <button onClick={() => setModal({ id: Date.now(), stage: "", title: "", assignee: placeholder.userName, time: "Immediately", trigger: "Deal Status: New", action: "Send Email", active: true, createdBy: placeholder.userName, for: "User" })} className={cn(greenBtn, "px-3 py-1")}>Add Workflow</button>
+          <button onClick={() => setModal({ id: Date.now(), stage: "", title: "", assignee: me, time: "Immediately", trigger: "Deal Status: New", action: "Send Email", active: true, createdBy: me, for: "User" })} className={cn(greenBtn, "px-3 py-1")}>Add Workflow</button>
         </div>
         <div className="space-y-4 p-[15px] pt-0">
           {groups.map((g) => (
@@ -349,7 +355,7 @@ function WorkflowModal({ flow, stages, close, save }: { flow: Workflow; stages: 
       <div className="grid gap-3 text-[12.6px] sm:grid-cols-2">
         <label className="sm:col-span-2"><span className={label}>Title</span><input value={f.title} onChange={(e) => { setF({ ...f, title: e.target.value }); setErr(false); }} className={cn(input, err && "border-[#d9534f]")} /></label>
         {sel("stage", "Stage", ["", ...stages])}
-        {sel("assignee", "Assignee", placeholderAgents)}
+        {sel("assignee", "Assignee", [flow.assignee])}
         {sel("trigger", "Trigger", ["Deal Status: New", "Deal Status: Submitted", "Deal Status: Approved", "Deal Status: Funded", "Contact Birthday", "Mortgage Maturity", "Condition Uploaded"])}
         {sel("time", "Time From Trigger", ["Immediately", "1 day after", "3 days after", "7 days after", "30 days before", "On date"])}
         {sel("action", "Action", ["Send Email", "Send SMS", "Create Task", "Create Reminder", "Post to Message Centre"])}

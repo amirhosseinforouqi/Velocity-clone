@@ -42,14 +42,11 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
 const autoMap = (cols: string[], type: DataType) =>
   Object.fromEntries(cols.map((c) => [c, fields[type].find((f) => norm(f) === norm(c) || norm(f).replace("borrower", "") === norm(c)) ?? ""]));
 
-const placeholderHistory: HistoryItem[] = [
-  { date: "2026-10-12", type: "Contact", source: "Spring Open House", ok: true, processed: 24, results: [] },
-  { date: "2026-09-03", type: "Deal", source: "Expert (Consolidated)", ok: false, processed: 41, results: [] },
-];
+const placeholderHistory: HistoryItem[] = [];
 
 export function AppImporter() {
   const [type, setType] = useState<DataType>("Deal");
-  const [sources, setSources] = useState(["Spring Open House", "Referral Partner List"]);
+  const [sources, setSources] = useState<string[]>([]);
   const [source, setSource] = useState("Expert (Consolidated)");
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -302,7 +299,7 @@ function AddSourceModal({ close, onAdd }: { close: () => void; onAdd: (name: str
   );
 }
 
-const placeholderAudiences = ["Past Clients 2025", "Renewals Q1"];
+const placeholderAudiences: string[] = [];
 
 export function AudienceModal({ close }: { close: () => void }) {
   const [mode, setMode] = useState<"create" | "update" | "replace">("create");

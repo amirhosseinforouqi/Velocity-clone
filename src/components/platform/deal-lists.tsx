@@ -7,7 +7,8 @@ import { cn } from "@/lib/utils";
 import { moveDealAction } from "@/app/deal/actions";
 import { dealCode } from "@/server/deal-status";
 import type { DealRow } from "@/server/deals";
-import { placeholderAgents, placeholderDeals, placeholderHistorical } from "./placeholder-data";
+import { useSession } from "next-auth/react";
+import { placeholderHistorical } from "./placeholder-data";
 import { AppShell } from "./shell";
 import { blueBtn, greyBtn, Grid, input, Modal, PageHeader, Pager, panel, redBtn } from "./ui";
 
@@ -20,7 +21,7 @@ function AsSelect() {
   return (
     <label className="flex items-center gap-2 text-[22px] font-light">
       As:
-      <select className="h-[34px] rounded-[3px] border border-[#ccc] px-2 text-sm">{placeholderAgents.map((a) => <option key={a}>{a}</option>)}</select>
+      <select className="h-[34px] rounded-[3px] border border-[#ccc] px-2 text-sm"><option>{useSession().data?.user?.name}</option></select>
     </label>
   );
 }
@@ -128,9 +129,9 @@ export function AppHistorical() {
   );
 }
 
-const activeDeals = Object.entries(placeholderDeals).flatMap(([stage, ds], s) =>
-  ds.map((d, i) => ({ id: s * 100 + i, loanCode: `KW-1000${s}${i}`, name: d.name, stage, closingDate: d.closingDate })),
-);
+// ponytail: not wired to the database yet, so the list starts empty.
+const activeDeals: { id: number; loanCode: string; name: string; stage: string; closingDate?: string }[] = [];
+const stages = ["Leads", "Pre-Approvals", "New Deals", "Submitted", "Approved", "Accepted", "Waiting to Close", "Funded + Awaiting Payment", "Declined", "Cancelled"];
 
 export function AppHistoricalRestore() {
   const [deals, setDeals] = useState(activeDeals);
@@ -153,7 +154,7 @@ export function AppHistoricalRestore() {
         <div className="flex flex-wrap items-end gap-3 px-[15px] py-2.5 text-[12.6px]">
           <label className="font-semibold text-[#666]">Deal Status
             <select value={status} onChange={(e) => setStatus(e.target.value)} className={cn(input, "mt-1 w-[200px] font-normal")}>
-              {["All", ...Object.keys(placeholderDeals)].map((o) => <option key={o}>{o}</option>)}
+              {["All", ...stages].map((o) => <option key={o}>{o}</option>)}
             </select>
           </label>
           <button onClick={restore} className={cn(blueBtn, "ml-auto h-[30px] px-3")}>Restore</button>

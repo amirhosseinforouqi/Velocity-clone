@@ -9,7 +9,8 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { archiveContactAction, saveContactAction, setCaslAction } from "@/app/contacts/actions";
 import { quickApplicationAction } from "@/app/deal/actions";
-import { placeholder, placeholderDuplicates, type Contact } from "./placeholder-data";
+import { useSession } from "next-auth/react";
+import { placeholderDuplicates, type Contact } from "./placeholder-data";
 import { AppShell } from "./shell";
 import { SectionBox } from "./deal";
 import { blueBtn, greenBtn, input, PageHeader, td, th, ToggleColumns } from "./ui";
@@ -256,6 +257,7 @@ function Campaigns() {
 export function AppContact({ contact: c }: { contact: Contact }) {
   const name = `${c.firstName} ${c.lastName}`;
   const dup = placeholderDuplicates.find((d) => d.name === name);
+  const me = useSession().data?.user?.name ?? "";
   const [state, save, saving] = useActionState(saveContactAction.bind(null, String(c.id)), null);
   const [archiveError, setArchiveError] = useState("");
   const router = useRouter();
@@ -331,7 +333,7 @@ export function AppContact({ contact: c }: { contact: Contact }) {
                 {field("SIN:")}
                 {select("Marital Status:", ["", "Common Law", "Divorced", "Married", "Separated", "Single", "Widowed"])}
                 {select("Language:", ["English", "Français"])}
-                {select("Agents:", [placeholder.userName])}
+                {select("Agents:", [me])}
                 <div className="sm:col-span-2">
                   <span className={label}>Social Media</span>
                   <div className="flex gap-2">{["Facebook", "LinkedIn", "X"].map((s) => <input key={s} placeholder={s} className={input} />)}</div>

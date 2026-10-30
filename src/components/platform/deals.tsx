@@ -6,7 +6,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { boardStatuses, dealCode, type DealStatus } from "@/server/deal-status";
 import type { DealRow } from "@/server/deals";
-import { placeholder } from "./placeholder-data";
+import { useSession } from "next-auth/react";
 import { AppShell, money } from "./shell";
 
 const headers = [
@@ -166,7 +166,7 @@ export function AppDealsGrid({ deals, status, noAgent }: { deals: DealRow[]; sta
         <h1 className="text-[28px] leading-[38px] font-light">Dashboard - Grid</h1>
         <span className="text-[22px] font-light">
           As:{" "}
-          <select className="text-base" aria-label="Show deals for"><option>{placeholder.userName}</option></select>
+          <select className="text-base" aria-label="Show deals for"><option>{useSession().data?.user?.name}</option></select>
         </span>
         <ol className="ml-auto hidden text-xs sm:block"><li>Dashboard - Grid</li></ol>
       </section>

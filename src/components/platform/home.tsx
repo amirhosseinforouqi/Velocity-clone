@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Calendar, ChevronLeft, ChevronRight, Folder, House, Mail, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { placeholder } from "./placeholder-data";
+import type { DealStatus } from "@/server/deal-status";
 import { AppShell, money } from "./shell";
 
 function Card({ header, border, children }: { header: ReactNode; border?: boolean; children: ReactNode }) {
@@ -70,14 +70,25 @@ function Stage({ label, count, amount, className }: { label: string; count: numb
   );
 }
 
-function DealsCard() {
+type DealSummary = { status: DealStatus; amount: number }[];
+const stage = (deals: DealSummary, ...statuses: DealStatus[]) => {
+  const ds = deals.filter((d) => statuses.includes(d.status));
+  return { count: ds.length, amount: ds.reduce((a, d) => a + d.amount, 0) };
+};
+
+// ponytail: counts cover every year; the year stepper is display-only until deals are filtered by date.
+function DealsCard({ deals }: { deals: DealSummary }) {
   const [year, setYear] = useState(() => new Date().getFullYear());
-  const s = placeholder.stages;
+  const s = {
+    leads: { count: stage(deals, "lead").count }, preApproval: stage(deals, "pre_approval"),
+    pipeline: stage(deals, "new_deal", "submitted", "approved", "accepted"), wtc: stage(deals, "waiting_to_close"), funded: stage(deals, "funded"),
+  };
+  const active = deals.filter((d) => !["declined", "cancelled", "complete", "parked"].includes(d.status)).length;
   return (
     <Card header={<><Title>Deals Overview</Title><Stepper label={String(year)} onPrev={() => setYear(year - 1)} onNext={() => setYear(year + 1)} /></>}>
       <div className="mt-2.5 space-y-1.5 text-center text-sm leading-[19px] font-light text-[#666]">
-        <p>You currently have <strong className="font-bold text-[#0073b7]">[{placeholder.activeDeals}]</strong> total active deals.</p>
-        <p>You have cancelled <strong className="font-bold text-[#00a65a]">[{placeholder.cancelledDeals}]</strong> deals.</p>
+        <p>You currently have <strong className="font-bold text-[#0073b7]">[{active}]</strong> total active deals.</p>
+        <p>You have cancelled <strong className="font-bold text-[#00a65a]">[{stage(deals, "cancelled").count}]</strong> deals.</p>
       </div>
       <ul className="relative mx-auto mt-[24px] h-[290px] max-w-[500px] max-sm:-my-[60px] max-sm:scale-[0.55]">
         <Stage label="Pre-Approval" {...s.preApproval} className="top-[3px] left-[calc(50%-65px)] text-center" />
@@ -122,16 +133,19 @@ function MessageCard() {
   );
 }
 
-function Donut() {
-  const total = placeholder.crm.reduce((a, c) => a + c.count, 0);
+type Crm = { label: string; count: number; color: string }[];
+
+function Donut({ crm }: { crm: Crm }) {
+  const total = crm.reduce((a, c) => a + c.count, 0);
   const r = 80;
   const C = 2 * Math.PI * r;
   return (
     <svg width="255" height="240" viewBox="0 0 255 240" aria-label="CRM opportunities chart">
       <g transform="rotate(-90 127.5 120)">
-        {placeholder.crm.map((c, i) => {
+        {!total && <circle cx="127.5" cy="120" r={r} fill="none" stroke="#ddd" strokeWidth="45" />}
+        {!!total && crm.map((c, i) => {
           const len = (c.count / total) * C;
-          const offset = placeholder.crm.slice(0, i).reduce((a, p) => a + (p.count / total) * C, 0);
+          const offset = crm.slice(0, i).reduce((a, p) => a + (p.count / total) * C, 0);
           const el = (
             <circle key={c.label} cx="127.5" cy="120" r={r} fill="none" stroke={c.color} strokeWidth="45" strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-offset} />
           );
@@ -142,17 +156,24 @@ function Donut() {
   );
 }
 
-function CrmCard() {
-  const total = placeholder.crm.reduce((a, c) => a + c.count, 0);
+// ponytail: only pre-approvals are counted; birthdays, anniversaries and maturities show 0 until contacts store those dates.
+function CrmCard({ preApprovals }: { preApprovals: number }) {
+  const crm: Crm = [
+    { label: "Pre-Approvals", count: preApprovals, color: "#30718f" },
+    { label: "Birthdays", count: 0, color: "#12a4a1" },
+    { label: "Anniversaries", count: 0, color: "#1563c5" },
+    { label: "Maturities", count: 0, color: "#0092e7" },
+  ];
+  const total = crm.reduce((a, c) => a + c.count, 0);
   return (
     <Card header={<Title>CRM Overview</Title>}>
       <p className="mt-2.5 text-sm leading-[19px] font-light text-[#666]">
         You have <strong className="font-bold">[{total}]</strong> opportunities over the next 30 days.
       </p>
       <div className="mt-10 flex flex-wrap items-start justify-center gap-[26px]">
-        <Donut />
+        <Donut crm={crm} />
         <ul className="mt-5 border border-[#0d4676] bg-[rgba(240,240,240,0.7)] px-[15px] py-2.5">
-          {placeholder.crm.map((c) => (
+          {crm.map((c) => (
             <li key={c.label} className="flex h-6 items-center gap-1">
               <span className="size-[11px]" style={{ background: c.color }} /> {c.label}
             </li>
@@ -200,7 +221,7 @@ function PortalCard({ p }: { p: PortalSummary }) {
     </div>
   );
 }
-export function AppHome({ portal }: { portal: PortalSummary }) {
+export function AppHome({ portal, deals }: { portal: PortalSummary; deals: DealSummary }) {
   return (
     <AppShell>
       <header className="relative mx-[25px] mb-5 h-[58px] pl-[60px] text-[#666]">
@@ -210,9 +231,9 @@ export function AppHome({ portal }: { portal: PortalSummary }) {
       </header>
       <section className="mx-[25px] grid items-start gap-x-[30px] gap-y-[25px] min-[1200px]:grid-cols-2">
         <CalendarCard />
-        <DealsCard />
+        <DealsCard deals={deals} />
         <MessageCard />
-        <CrmCard />
+        <CrmCard preApprovals={stage(deals, "pre_approval").count} />
         <PortalCard p={portal} />
       </section>
     </AppShell>

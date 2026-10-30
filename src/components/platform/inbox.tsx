@@ -5,7 +5,8 @@ import { Bell, Bookmark, Copy, Mail, Search } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { placeholder, placeholderAgents, placeholderContacts, placeholderMessages, placeholderNewApps, placeholderReportDeals, type Message } from "./placeholder-data";
+import { useSession } from "next-auth/react";
+import { placeholderMessages, placeholderNewApps, type Contact, type Message } from "./placeholder-data";
 import { money, AppShell } from "./shell";
 import { blueBtn, greenBtn, greyBtn, Grid, input, label, Modal, PageHeader, Pager, panel, redBtn } from "./ui";
 
@@ -15,6 +16,7 @@ const importanceColor: Record<Message["importance"], string> = { Important: "bg-
 
 export function AppMessages() {
   const [msgs, setMsgs] = useState(placeholderMessages);
+  const me = useSession().data?.user?.name ?? "";
   const [unread, setUnread] = useState(false);
   const [search, setSearch] = useState("");
   const [viewing, setViewing] = useState<Message | null>(null);
@@ -30,7 +32,7 @@ export function AppMessages() {
       <div className={panel}>
         <div className="flex flex-wrap items-center gap-3 px-[15px] py-2.5 text-[12.6px]">
           <label className="flex items-center gap-2"><input type="checkbox" checked={unread} onChange={(e) => setUnread(e.target.checked)} /> Unread only</label>
-          <button onClick={() => setEditing({ importance: "Share", to: placeholder.userName })} className={cn(greenBtn, "px-3 py-1")}>+ New Message</button>
+          <button onClick={() => setEditing({ importance: "Share", to: me })} className={cn(greenBtn, "px-3 py-1")}>+ New Message</button>
           <button onClick={() => setConfirmAll(true)} className={cn(greyBtn, "px-3 py-1")}>Mark All as Read</button>
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." className={cn(input, "ml-auto h-[34px] w-[240px]")} />
         </div>
@@ -74,10 +76,11 @@ export function AppMessages() {
 function EditMessage({ msg, close, save, remove }: { msg: Partial<Message>; close: () => void; save: (m: Message) => void; remove: (id: number) => void }) {
   const [m, setM] = useState(msg);
   const [toType, setToType] = useState("User");
+  const me = useSession().data?.user?.name ?? "";
   const [err, setErr] = useState(false);
   const send = (draft: boolean) => {
     if (!m.title?.trim()) return setErr(true);
-    save({ id: m.id ?? Date.now(), title: m.title, to: m.to ?? placeholder.userName, importance: m.importance ?? "Share", read: m.read ?? false, sent: new Date().toISOString().slice(0, 16), from: placeholder.userName, body: m.body ?? "", loanCode: m.loanCode, draft });
+    save({ id: m.id ?? Date.now(), title: m.title, to: m.to ?? me, importance: m.importance ?? "Share", read: m.read ?? false, sent: new Date().toISOString().slice(0, 16), from: me, body: m.body ?? "", loanCode: m.loanCode, draft });
   };
   return (
     <Modal title="Send to Message Centre" close={close} footer={<>
@@ -91,7 +94,7 @@ function EditMessage({ msg, close, save, remove }: { msg: Partial<Message>; clos
         </label>
         <label><span className={label}>{toType}</span>
           <select value={m.to} onChange={(e) => setM({ ...m, to: e.target.value })} className={input}>
-            {(toType === "User" ? placeholderAgents : toType === "Office" ? ["Toronto Office", "Ottawa Office"] : [`All ${toType}`]).map((o) => <option key={o}>{o}</option>)}
+            {(toType === "User" ? [me] : [`All ${toType}`]).map((o) => <option key={o}>{o}</option>)}
           </select>
         </label>
         <label><span className={label}>Item</span><input value={m.loanCode ?? ""} onChange={(e) => setM({ ...m, loanCode: e.target.value })} placeholder="Loan code (optional)" className={input} /></label>
@@ -111,7 +114,7 @@ export function AppNewApplications() {
   const [search, setSearch] = useState("");
   const [per, setPer] = useState(25);
   const [copied, setCopied] = useState(false);
-  const link = "https://apply.example.com/sample-agent";
+  const link = ""; // ponytail: no online application form yet
   const q = search.toLowerCase();
   const rows = apps.filter((a) => !q || Object.values(a).some((v) => String(v).toLowerCase().includes(q))).slice(0, per);
   return (
@@ -120,8 +123,8 @@ export function AppNewApplications() {
       <div className={panel}>
         <div className="flex flex-wrap items-center gap-3 px-[15px] py-2.5 text-[12.6px]">
           <span className="font-semibold">Your Customer Application Form link:</span>
-          <code className="rounded bg-[#f5f5f5] px-2 py-1">{link}</code>
-          <button onClick={() => { void navigator.clipboard?.writeText(link); setCopied(true); }} className={cn(greyBtn, "flex items-center gap-1 px-2 py-1")}><Copy className="size-3.5" /> {copied ? "Copied!" : "Copy"}</button>
+          <code className="rounded bg-[#f5f5f5] px-2 py-1">{link || "Not set up yet"}</code>
+          <button disabled={!link} onClick={() => { void navigator.clipboard?.writeText(link); setCopied(true); }} className={cn(greyBtn, "flex items-center gap-1 px-2 py-1")}><Copy className="size-3.5" /> {copied ? "Copied!" : "Copy"}</button>
         </div>
         <div className="flex flex-wrap items-center gap-3 px-[15px] pb-2.5 text-[12.6px]">
           <label className="flex items-center gap-2">Records per page
@@ -170,15 +173,17 @@ export function AppReminders({ reminders }: { reminders: { id: string; level: st
   );
 }
 
-export function AppSearch() {
+type SearchDeal = { id: string; loanCode: string; client: string; status: string; amount: number; lender: string; closingDate: string; agent: string };
+
+export function AppSearch({ contacts: allContacts, deals: allDeals }: { contacts: Contact[]; deals: SearchDeal[] }) {
   const params = useSearchParams();
   const [q, setQ] = useState(params.get("q") ?? "");
   const [scope, setScope] = useState(params.get("scope") ?? "All");
   const [adv, setAdv] = useState({ first: "", last: "", email: "", phone: "", loanCode: "" });
   const [advanced, setAdvanced] = useState(params.has("advanced"));
   const has = (v: string | undefined, s: string) => !s || (v ?? "").toLowerCase().includes(s.toLowerCase());
-  const deals = placeholderReportDeals.filter((d) => has(`${d.loanCode} ${d.client} ${d.lender}`, q) && has(d.client.split(" ")[0], adv.first) && has(d.client.split(" ")[1], adv.last) && has(d.loanCode, adv.loanCode));
-  const contacts = placeholderContacts.filter((c) => has(`${c.firstName} ${c.lastName} ${c.email} ${c.cellPhone} ${c.homePhone}`, q) && has(c.firstName, adv.first) && has(c.lastName, adv.last) && has(c.email, adv.email) && has(`${c.cellPhone} ${c.homePhone} ${c.workPhone}`, adv.phone));
+  const deals = allDeals.filter((d) => has(`${d.loanCode} ${d.client} ${d.lender}`, q) && has(d.client.split(" ")[0], adv.first) && has(d.client.split(" ")[1], adv.last) && has(d.loanCode, adv.loanCode));
+  const contacts = allContacts.filter((c) => has(`${c.firstName} ${c.lastName} ${c.email} ${c.cellPhone} ${c.homePhone}`, q) && has(c.firstName, adv.first) && has(c.lastName, adv.last) && has(c.email, adv.email) && has(`${c.cellPhone} ${c.homePhone} ${c.workPhone}`, adv.phone));
   const leads = contacts.filter((c) => !c.casl);
   const show = (s: string) => scope === "All" || scope === s;
   return (
@@ -202,12 +207,12 @@ export function AppSearch() {
       </div>
       {show("Deals") && <Section title={`Deals (${deals.length})`}>
         <Grid head={["Loan Code", "Client", "Status", "Mortgage Amount", "Lender", "Closing Date", "Agent"]} rows={deals.map((d) => [
-          <Link key="l" href={`/deal?loanCode=${d.loanCode}`} className="text-[#428bca] hover:underline">{d.loanCode}</Link>, d.client, d.status, money(d.amount), d.lender, fmt(d.closingDate), d.agent,
+          <Link key="l" href={`/deal/${d.id}`} className="text-[#428bca] hover:underline">{d.loanCode}</Link>, d.client, d.status, money(d.amount), d.lender, fmt(d.closingDate), d.agent,
         ])} />
       </Section>}
       {show("Contacts") && <Section title={`Contacts (${contacts.length})`}>
         <Grid head={["First Name", "Last Name", "Email", "Cell Phone", "Address"]} rows={contacts.map((c) => [
-          <Link key="f" href="/contacts" className="text-[#428bca] hover:underline">{c.firstName}</Link>, c.lastName, c.email ?? "", c.cellPhone ?? c.homePhone ?? "", c.address ?? "",
+          <Link key="f" href={`/contacts/${c.id}`} className="text-[#428bca] hover:underline">{c.firstName}</Link>, c.lastName, c.email ?? "", c.cellPhone ?? c.homePhone ?? "", c.address ?? "",
         ])} />
       </Section>}
       {show("Leads") && <Section title={`Leads (${leads.length})`}>
