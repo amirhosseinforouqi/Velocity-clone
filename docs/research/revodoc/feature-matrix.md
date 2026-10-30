@@ -332,3 +332,5 @@ Every slice uses synthetic `@keyway.test` data. Nothing sends email or SMS on it
   - Condition counts on the deals grid ("Cond. Req / Rec / Sat") and a home Conditions card.
   - Not built: a Rejected count. Keyway conditions have no rejected state (Received is the in-between state instead).
   - Tests: `server.test.ts`. Verified in the browser as an agent.
+
+- Slice 5 done: contact company/role/sub-role (admin-defined sub-roles), Deal Contacts tab, Referral Source picker on Referrals. Tests, typecheck and lint pass; browser check not run yet (unverified in the UI).

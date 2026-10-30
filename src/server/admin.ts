@@ -5,6 +5,7 @@ import { and, asc, count, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { officeKeys, orgFeatures, userKeys } from "../components/platform/admin-fields.ts";
 import { fieldKeys } from "../components/platform/deal-sections.ts";
 import { Forbidden, type Actor, type Role } from "./access.ts";
+import { isContactRole } from "./contact-roles.ts";
 import { audit } from "./audit.ts";
 import { ValidationError } from "./contacts.ts";
 import type { Db } from "./db.ts";
@@ -201,6 +202,7 @@ export const defaultSettings: OrgSettings = {
     "General", "Admin", "Follow Up", "Urgent", "Advisor Comment", "Customer Phone Call", "Customer Correspondence", "Lender Correspondence",
     "Appraiser Correspondence", "Legal Phone Call", "Submission Notes",
   ],
+  contactSubRoles: [],
   features: ["Enable eSign", "Enable My Day", "Enable Global Search", "Enable Importer", "Enable Pipeline Report", "Enable Report Creator", "Enable Deal Close Out", "Enable Scenario Builder - Calculators"],
 };
 export const slaStatuses: DealStatus[] = ["approved", "accepted", "waiting_to_close"];
@@ -208,7 +210,7 @@ export const slaStatuses: DealStatus[] = ["approved", "accepted", "waiting_to_cl
 export async function getOrganization(db: Db, organizationId: string) {
   const [o] = await db.select().from(organizations).where(eq(organizations.id, organizationId));
   const s = o.settings;
-  return { id: o.id, name: o.name, settings: { sla: { ...defaultSettings.sla, ...s.sla }, reminders: { ...defaultSettings.reminders, ...s.reminders }, features: s.features ?? defaultSettings.features, noteCategories: s.noteCategories ?? defaultSettings.noteCategories } };
+  return { id: o.id, name: o.name, settings: { sla: { ...defaultSettings.sla, ...s.sla }, reminders: { ...defaultSettings.reminders, ...s.reminders }, features: s.features ?? defaultSettings.features, noteCategories: s.noteCategories ?? defaultSettings.noteCategories, contactSubRoles: s.contactSubRoles ?? [] } };
 }
 
 const days = (v: unknown, label: string) => {
@@ -225,8 +227,22 @@ function categories(v: unknown) {
   return list;
 }
 
-// noteCategories omitted keeps the saved list.
-export async function saveOrganization(db: Db, actor: Actor, input: { name: unknown; sla: Record<string, unknown>; reminders: Record<string, unknown>; features: unknown[]; noteCategories?: unknown }) {
+// "Role: Sub-role" per line; blanks and repeats dropped.
+function subRoles(v: unknown) {
+  const out = new Map<string, { role: string; name: string }>();
+  for (const line of String(v ?? "").split("\n").map((l) => l.trim()).filter(Boolean)) {
+    const at = line.indexOf(":");
+    const role = line.slice(0, at).trim(), name = line.slice(at + 1).trim();
+    if (at < 0 || !isContactRole(role) || !name) throw new ValidationError(`"${line.slice(0, 60)}" must be a contact role, a colon, then the sub-role`);
+    if (name.length > 50) throw new ValidationError("Sub-roles are up to 50 characters");
+    out.set(`${role}:${name}`, { role, name });
+  }
+  if (out.size > 200) throw new ValidationError("Up to 200 sub-roles");
+  return [...out.values()];
+}
+
+// noteCategories or contactSubRoles omitted keeps the saved list.
+export async function saveOrganization(db: Db, actor: Actor, input: { name: unknown; sla: Record<string, unknown>; reminders: Record<string, unknown>; features: unknown[]; noteCategories?: unknown; contactSubRoles?: unknown }) {
   mustOrgAdmin(actor);
   const name = text(input.name, "Name", 100);
   const sla = Object.fromEntries(slaStatuses.map((s) => [s, days(input.sla[s], "SLA days")]));
@@ -235,7 +251,8 @@ export async function saveOrganization(db: Db, actor: Actor, input: { name: unkn
   const features = orgFeatures.filter((f) => input.features.includes(f));
   const before = await getOrganization(db, actor.organizationId);
   const noteCategories = input.noteCategories === undefined ? before.settings.noteCategories : categories(input.noteCategories);
-  const settings = { sla, reminders: r, features, noteCategories };
+  const contactSubRoles = input.contactSubRoles === undefined ? before.settings.contactSubRoles : subRoles(input.contactSubRoles);
+  const settings = { sla, reminders: r, features, noteCategories, contactSubRoles };
   await db.transaction(async (tx) => {
     await tx.update(organizations).set({ name, settings }).where(eq(organizations.id, actor.organizationId));
     await audit(tx, actor, "organization", actor.organizationId, "update", { name: before.name, settings: before.settings }, { name, settings });

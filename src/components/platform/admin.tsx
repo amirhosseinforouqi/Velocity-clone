@@ -368,7 +368,7 @@ export function AppUserMatrix({ users, offices, roles }: { users: AdminUserRow[]
 
 // ---- Organization
 
-export type OrgView = { name: string; settings: { sla: Record<string, number>; reminders: { urgent: number; warning: number; notice: number }; features: string[]; noteCategories: string[] } };
+export type OrgView = { name: string; settings: { sla: Record<string, number>; reminders: { urgent: number; warning: number; notice: number }; features: string[]; noteCategories: string[]; contactSubRoles: { role: string; name: string }[] } };
 
 export function AppOrganizationEdit({ org, slaStatuses }: { org: OrgView; slaStatuses: DealStatus[] }) {
   const { submit, footer } = useSave(saveOrganizationAction);
@@ -403,6 +403,13 @@ export function AppOrganizationEdit({ org, slaStatuses }: { org: OrgView; slaSta
             <textarea name="noteCategories" rows={8} defaultValue={s.noteCategories.join("\n")} required className="w-full rounded-[3px] border border-[#ccc] px-2 py-1" />
           </label>
           <p className="mt-2 text-[#999]">Removing a category keeps it on notes that already use it.</p>
+        </Box>
+        <Box title="Contact Sub Roles">
+          <label className="block max-w-sm">
+            <span className="mb-1 block font-semibold text-[#666]">One per line as Role: Sub-role, e.g. Lawyer: Real Estate.</span>
+            <textarea name="contactSubRoles" rows={6} defaultValue={s.contactSubRoles.map((r) => `${r.role}: ${r.name}`).join("\n")} className="w-full rounded-[3px] border border-[#ccc] px-2 py-1" />
+          </label>
+          <p className="mt-2 text-[#999]">Removing a sub-role keeps it on contacts that already use it.</p>
         </Box>
         {footer()}
       </form>

@@ -4,7 +4,7 @@ const id = () => uuid("id").primaryKey().defaultRandom();
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 
 // SLA targets, reminder thresholds and feature flags; defaults and validation live in admin.ts.
-export type OrgSettings = { sla: Record<string, number>; reminders: { urgent: number; warning: number; notice: number }; features: string[]; noteCategories: string[] };
+export type OrgSettings = { sla: Record<string, number>; reminders: { urgent: number; warning: number; notice: number }; features: string[]; noteCategories: string[]; contactSubRoles: { role: string; name: string }[] };
 
 export const organizations = pgTable("organizations", {
   id: id(),
@@ -58,6 +58,10 @@ export const contacts = pgTable("contacts", {
   cellPhone: text("cell_phone"),
   workPhone: text("work_phone"),
   address: text("address"),
+  company: text("company"),
+  // One of contactRoles; subRole one of the organization's sub-roles for that role.
+  role: text("role"),
+  subRole: text("sub_role"),
   casl: boolean("casl").notNull().default(false),
   createdAt: createdAt(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -170,6 +174,16 @@ export const dealConditions = pgTable("deal_conditions", {
   createdAt: createdAt(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("deal_conditions_deal_idx").on(t.dealId), uniqueIndex("deal_conditions_template_uq").on(t.dealId, t.templateId)]);
+
+// Contacts on a deal in a role: its lawyer, realtor, referral source... Removing deletes the row; the audit log keeps it.
+export const dealContacts = pgTable("deal_contacts", {
+  id: id(),
+  dealId: uuid("deal_id").notNull().references(() => deals.id),
+  contactId: uuid("contact_id").notNull().references(() => contacts.id),
+  role: text("role").notNull(),
+  createdBy: uuid("created_by").notNull().references(() => users.id),
+  createdAt: createdAt(),
+}, (t) => [uniqueIndex("deal_contacts_uq").on(t.dealId, t.contactId, t.role)]);
 
 // File metadata; the bytes live in storage under the document id (storage.ts).
 export const documents = pgTable("documents", {

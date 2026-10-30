@@ -1,12 +1,13 @@
-import { and, asc, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { fieldKeys } from "../components/platform/deal-sections.ts";
 import { dealScope, Forbidden, type Actor } from "./access.ts";
 import { audit } from "./audit.ts";
 import { applySmartRules } from "./conditions.ts";
+import { isContactRole } from "./contact-roles.ts";
 import { getContact, ValidationError } from "./contacts.ts";
 import type { Db } from "./db.ts";
 import { allowedMoves, type DealStatus } from "./deal-status.ts";
-import { auditLog, clients, contacts, dealBorrowers, dealConditions, deals, dealStatusHistory, documents, tasks, users } from "./schema.ts";
+import { auditLog, clients, contacts, dealBorrowers, dealConditions, dealContacts, deals, dealStatusHistory, documents, tasks, users } from "./schema.ts";
 
 export { dealCode } from "./deal-status.ts";
 
@@ -179,6 +180,41 @@ export function dealHistory(db: Db, id: string) {
   return db.select({ id: dealStatusHistory.id, from: dealStatusHistory.from, to: dealStatusHistory.to, at: dealStatusHistory.at, actor: users.name })
     .from(dealStatusHistory).innerJoin(users, eq(users.id, dealStatusHistory.actorId))
     .where(eq(dealStatusHistory.dealId, id)).orderBy(asc(dealStatusHistory.at));
+}
+
+// ---- Deal contacts (lawyer, realtor, referral source...)
+
+export async function listDealContacts(db: Db, actor: Actor, dealId: string) {
+  await mustGet(db, actor, dealId);
+  return db.select({ id: dealContacts.id, role: dealContacts.role, contactId: contacts.id, firstName: contacts.firstName, lastName: contacts.lastName, company: contacts.company, email: contacts.email })
+    .from(dealContacts).innerJoin(contacts, eq(contacts.id, dealContacts.contactId))
+    .where(and(eq(dealContacts.dealId, dealId), isNull(contacts.deletedAt)))
+    .orderBy(asc(dealContacts.role), asc(contacts.lastName), asc(contacts.firstName));
+}
+
+// Both the deal and the contact must be visible to the actor.
+export async function addDealContact(db: Db, actor: Actor, dealId: string, contactId: string, role: string) {
+  await mustGet(db, actor, dealId);
+  if (!isContactRole(role)) throw new ValidationError("Choose a role from the list");
+  const c = await getContact(db, actor, contactId);
+  if (!c) throw new Forbidden("Contact not found");
+  await db.transaction(async (tx) => {
+    const [row] = await tx.insert(dealContacts).values({ dealId, contactId, role, createdBy: actor.id }).onConflictDoNothing().returning({ id: dealContacts.id });
+    if (!row) throw new ValidationError(`${c.firstName} ${c.lastName} is already on this deal as ${role}`);
+    await audit(tx, actor, "deal", dealId, "contact_add", null, { role, contactId, name: `${c.firstName} ${c.lastName}` });
+  });
+}
+
+export async function removeDealContact(db: Db, actor: Actor, id: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Forbidden("Deal contact not found");
+  const [row] = await db.select({ dealId: dealContacts.dealId, role: dealContacts.role, contactId: dealContacts.contactId, firstName: contacts.firstName, lastName: contacts.lastName })
+    .from(dealContacts).innerJoin(contacts, eq(contacts.id, dealContacts.contactId)).where(eq(dealContacts.id, id));
+  if (!row) throw new Forbidden("Deal contact not found");
+  await mustGet(db, actor, row.dealId);
+  await db.transaction(async (tx) => {
+    await tx.delete(dealContacts).where(eq(dealContacts.id, id));
+    await audit(tx, actor, "deal", row.dealId, "contact_remove", { role: row.role, contactId: row.contactId, name: `${row.firstName} ${row.lastName}` }, null);
+  });
 }
 
 // Everything audited on the deal and its tasks, conditions and documents, newest first, for staff who can see the deal.

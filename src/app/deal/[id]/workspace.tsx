@@ -6,7 +6,8 @@ import { dealTabs } from "@/components/platform/deal-sections";
 import { dealCompliance } from "@/server/compliance";
 import { dealChecklist } from "@/server/conditions";
 import { getDb } from "@/server/db";
-import { dealActivity, dealHistory, getDeal } from "@/server/deals";
+import { listContacts } from "@/server/contacts";
+import { dealActivity, dealHistory, getDeal, listDealContacts } from "@/server/deals";
 import { lenderChoices } from "@/server/lenders";
 import { portalWorkspace } from "@/server/portal";
 import { dealTasks } from "@/server/tasks";
@@ -20,5 +21,10 @@ export async function DealWorkspace({ id, tab }: { id: string; tab?: string }) {
   if (!deal) notFound();
   // The portal tab has its own forms, so it renders outside the deal form.
   if (tab === "clientPortal") return <AppDealPortal w={await portalWorkspace(db, actor, deal.id)} orgAdmin={actor.role === "org_admin"} />;
-  return <AppDeal deal={deal} history={await dealHistory(db, deal.id)} checklist={await dealChecklist(db, actor, deal.id)} compliance={await dealCompliance(db, actor, deal.id)} tasks={await dealTasks(db, actor, deal.id)} lenders={await lenderChoices(db, deal.organizationId, deal.agentId)} activity={tab === "activity" ? await dealActivity(db, actor, deal.id) : []} tab={tab} />;
+  const contacts = {
+    dealId: deal.id,
+    rows: await listDealContacts(db, actor, deal.id),
+    choices: (await listContacts(db, actor)).map((c) => ({ id: c.id, name: `${c.firstName} ${c.lastName}`, role: c.role, company: c.company })),
+  };
+  return <AppDeal deal={deal} contacts={contacts} history={await dealHistory(db, deal.id)} checklist={await dealChecklist(db, actor, deal.id)} compliance={await dealCompliance(db, actor, deal.id)} tasks={await dealTasks(db, actor, deal.id)} lenders={await lenderChoices(db, deal.organizationId, deal.agentId)} activity={tab === "activity" ? await dealActivity(db, actor, deal.id) : []} tab={tab} />;
 }

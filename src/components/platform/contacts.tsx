@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { archiveContactAction, saveContactAction, setCaslAction } from "@/app/contacts/actions";
 import { quickApplicationAction } from "@/app/deal/actions";
 import { useSession } from "next-auth/react";
+import { contactRoles } from "@/server/contact-roles";
 import { placeholderDuplicates, type Contact } from "./placeholder-data";
 import { AppShell } from "./shell";
 import { SectionBox } from "./deal";
@@ -17,6 +18,7 @@ import { blueBtn, greenBtn, input, PageHeader, td, th, ToggleColumns } from "./u
 
 // First and last name are always shown, as in Velocity.
 const columns = [
+  ["company", "Company"], ["role", "Role"], ["subRole", "Sub-Role"],
   ["homePhone", "Home Phone"], ["cellPhone", "Cell Phone"], ["workPhone", "Work Phone"], ["email", "Email"],
   ["address", "Current Address"], ["previousOne", "Previous Address 1"], ["previousTwo", "Previous Address 2"],
 ] as const;
@@ -254,7 +256,9 @@ function Campaigns() {
   );
 }
 
-export function AppContact({ contact: c }: { contact: Contact }) {
+export function AppContact({ contact: c, subRoles }: { contact: Contact; subRoles: { role: string; name: string }[] }) {
+  const [role, setRole] = useState(c.role ?? "");
+  const [subRole, setSubRole] = useState(c.subRole ?? "");
   const name = `${c.firstName} ${c.lastName}`;
   const dup = placeholderDuplicates.find((d) => d.name === name);
   const me = useSession().data?.user?.name ?? "";
@@ -323,6 +327,22 @@ export function AppContact({ contact: c }: { contact: Contact }) {
                 {field("Last Name:", c.lastName, "text", "lastName")}
                 {field("Preferred Name:")}
                 {field("Email:", c.email, "email", "email")}
+                {field("Company:", c.company, "text", "company")}
+                <label>
+                  <span className={label}>Role:</span>
+                  <select name="role" value={role} onChange={(e) => { setRole(e.target.value); setSubRole(""); }} className={input}>
+                    <option value="">-- Select --</option>
+                    {contactRoles.map((r) => <option key={r}>{r}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span className={label}>Sub-Role:</span>
+                  <select name="subRole" value={subRole} onChange={(e) => setSubRole(e.target.value)} className={input}>
+                    <option value="">-- Select --</option>
+                    {/* A sub-role an admin has since removed still shows, so saving doesn't silently drop it. */}
+                    {[...new Set([...subRoles.filter((s) => s.role === role).map((s) => s.name), ...(subRole ? [subRole] : [])])].map((s) => <option key={s}>{s}</option>)}
+                  </select>
+                </label>
                 <label className="flex items-center gap-2 text-[12.6px] font-semibold text-[#666]"><input type="checkbox" name="casl" defaultChecked={c.casl} /> CASL Opt In:</label>
                 <label className="flex items-center gap-2 text-[12.6px] font-semibold text-[#666]"><input type="checkbox" /> Opt out of ALL email notifications:</label>
                 {field("Home Phone:", c.homePhone, "tel", "homePhone")}
@@ -342,7 +362,7 @@ export function AppContact({ contact: c }: { contact: Contact }) {
                   <button disabled={saving} className={cn(greenBtn, "px-4 py-1.5 text-[12.6px] disabled:opacity-60")}>{saving ? "Saving…" : "Save Contact"}</button>
                   {state?.error && <span role="alert" className="text-[12.6px] text-[#a94442]">{state.error}</span>}
                   {state && !state.error && !saving && <span role="status" className="text-[12.6px] text-[#3c763d]">Saved.</span>}
-                  <span className="text-[11px] text-[#999]">Saves name, email, phones and CASL. Other fields are not stored yet.</span>
+                  <span className="text-[11px] text-[#999]">Saves name, email, company, role, phones and CASL. Other fields are not stored yet.</span>
                 </div>
               </form>
               <Activity name={c.firstName} />

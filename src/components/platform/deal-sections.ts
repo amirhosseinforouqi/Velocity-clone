@@ -8,7 +8,7 @@ export type Group = {
   rows?: string[][];
   buttons?: string[];
   blank?: boolean; // ignore placeholder values (fields repeat labels used elsewhere)
-  custom?: "conditions" | "reminders" | "tasks" | "compliance"; // rendered by its own component instead of cols/rows
+  custom?: "conditions" | "reminders" | "tasks" | "compliance" | "contacts" | "referrals"; // rendered by its own component instead of cols/rows
 };
 export type Section = { id: string; title: string; groups: Group[] };
 
@@ -161,8 +161,12 @@ export const sections: Section[] = [
   {
     id: "referral",
     title: "Referral",
-    groups: [{ blank: true, fields: ["First Name", "Last Name", "Company Name", "Email", "Referral Type|select", "Other Type"] }],
+    groups: [
+      { blank: true, fields: ["First Name", "Last Name", "Company Name", "Email", "Referral Type|select", "Other Type"] },
+      { title: "Referral Source Contacts", custom: "referrals" },
+    ],
   },
+  { id: "dealContacts", title: "Deal Contacts", groups: [{ custom: "contacts" }] },
   { id: "insurance", title: "Insurance", groups: [{ fields: ["Has Life Insurance|check", "Charge Type|select", "Purchase Price", "Monthly Payment"] }] },
   {
     id: "closeOut",
@@ -188,6 +192,7 @@ export const dealTabs = [
   { slug: "insurance", label: "Insurance", sections: ["insurance"] },
   { slug: "mortgageRequests", label: "Mortgage Requests", sections: ["subjectProperty", "mortgageRequest"] },
   { slug: "referrals", label: "Referrals", sections: ["referral"] },
+  { slug: "contacts", label: "Deal Contacts", sections: ["dealContacts"] },
   { slug: "remindersAndTasks", label: "Reminders & Tasks", sections: ["reminders", "tasks"] },
   { slug: "activity", label: "Activity", sections: [] as string[] },
   { slug: "clientPortal", label: "Client Portal", sections: [] as string[] },

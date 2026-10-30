@@ -1,16 +1,17 @@
 import { and, asc, eq, ilike } from "drizzle-orm";
 import { contactScope, Forbidden, type Actor } from "./access.ts";
+import { isContactRole } from "./contact-roles.ts";
 import { audit } from "./audit.ts";
 import type { Db } from "./db.ts";
-import { contactConsents, contacts } from "./schema.ts";
+import { contactConsents, contacts, organizations } from "./schema.ts";
 
 export type ContactRow = typeof contacts.$inferSelect;
-export type ContactInput = Pick<ContactRow, "firstName" | "lastName"> & Partial<Pick<ContactRow, "email" | "homePhone" | "cellPhone" | "workPhone" | "address">>;
+export type ContactInput = Pick<ContactRow, "firstName" | "lastName"> & Partial<Pick<ContactRow, "email" | "homePhone" | "cellPhone" | "workPhone" | "address" | "company" | "role" | "subRole">>;
 
 export class ValidationError extends Error {}
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const fields = ["firstName", "lastName", "email", "homePhone", "cellPhone", "workPhone", "address"] as const;
+const fields = ["firstName", "lastName", "email", "homePhone", "cellPhone", "workPhone", "address", "company", "role", "subRole"] as const;
 
 // Keeps only known fields that were sent (so a form without an address doesn't wipe it), trims them,
 // turns blanks into null, and enforces the rules at the trust boundary.
@@ -24,6 +25,7 @@ export function cleanContact(input: Record<string, unknown>): ContactInput {
   }
   if (!out.firstName || !out.lastName) throw new ValidationError("First and last name are required");
   if (out.email && !EMAIL.test(out.email)) throw new ValidationError("Email address is not valid");
+  if (out.role && !isContactRole(out.role)) throw new ValidationError("Choose a role from the list");
   return out as ContactInput;
 }
 
@@ -47,6 +49,7 @@ export function contactView(r: ContactRow) {
   return {
     id: r.id, firstName: r.firstName, lastName: r.lastName, casl: r.casl, email: r.email ?? undefined, homePhone: r.homePhone ?? undefined,
     cellPhone: r.cellPhone ?? undefined, workPhone: r.workPhone ?? undefined, address: r.address ?? undefined,
+    company: r.company ?? undefined, role: r.role ?? undefined, subRole: r.subRole ?? undefined,
   };
 }
 
@@ -63,8 +66,17 @@ async function mustGet(db: Db, actor: Actor, id: string) {
   return row;
 }
 
+// A sub-role must be one the organization lists for the contact's role. Checked here, not in cleanContact, because it needs the database.
+async function checkSubRole(db: Db, actor: Actor, data: ContactInput, before?: ContactRow) {
+  if (!data.subRole) return;
+  const role = data.role === undefined ? before?.role : data.role;
+  const [org] = await db.select({ settings: organizations.settings }).from(organizations).where(eq(organizations.id, actor.organizationId));
+  if (!org.settings.contactSubRoles?.some((s) => s.role === role && s.name === data.subRole)) throw new ValidationError("Choose a sub-role listed for this role");
+}
+
 export async function createContact(db: Db, actor: Actor, input: Record<string, unknown>) {
   const data = cleanContact(input);
+  await checkSubRole(db, actor, data);
   return db.transaction(async (tx) => {
     const [row] = await tx.insert(contacts).values({ ...data, organizationId: actor.organizationId, officeId: actor.officeId, ownerId: actor.id }).returning();
     await audit(tx, actor, "contact", row.id, "create", null, row);
@@ -75,6 +87,7 @@ export async function createContact(db: Db, actor: Actor, input: Record<string, 
 export async function updateContact(db: Db, actor: Actor, id: string, input: Record<string, unknown>) {
   const before = await mustGet(db, actor, id);
   const data = cleanContact(input);
+  await checkSubRole(db, actor, data, before);
   return db.transaction(async (tx) => {
     const [row] = await tx.update(contacts).set({ ...data, updatedAt: new Date() }).where(eq(contacts.id, id)).returning();
     await audit(tx, actor, "contact", id, "update", before, row);

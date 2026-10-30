@@ -114,6 +114,9 @@ export type Contact = {
   address?: string;
   previousOne?: string;
   previousTwo?: string;
+  company?: string;
+  role?: string;
+  subRole?: string;
   casl: boolean;
   merged?: Contact[];
 };

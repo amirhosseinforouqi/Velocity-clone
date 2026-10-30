@@ -8,8 +8,8 @@ import type { dealTasks, TaskType } from "@/server/tasks";
 export type DealTaskList = Awaited<ReturnType<typeof dealTasks>>;
 export const TasksContext = createContext<DealTaskList | null>(null);
 
-const control = "h-[30px] rounded-[3px] border border-[#ccc] bg-white px-2 text-[12.6px] text-[#555] outline-none focus:border-[#66afe9] disabled:bg-[#eee]";
-const btn = "rounded-[3px] border border-[#3d81be] bg-gradient-to-b from-[#428bcd] to-[#3d81be] px-[13px] py-1.5 text-[12.6px] text-white disabled:opacity-60";
+export const control = "h-[30px] rounded-[3px] border border-[#ccc] bg-white px-2 text-[12.6px] text-[#555] outline-none focus:border-[#66afe9] disabled:bg-[#eee]";
+export const btn = "rounded-[3px] border border-[#3d81be] bg-gradient-to-b from-[#428bcd] to-[#3d81be] px-[13px] py-1.5 text-[12.6px] text-white disabled:opacity-60";
 const taskTypes: [TaskType, string][] = [["phone", "Phone call"], ["sms", "SMS"], ["email", "Email"], ["appointment", "Appointment"], ["other", "Other"]];
 
 // Reminders are follow-up tasks; Deal Specific Tasks are every other type. Like DealConditions this sits

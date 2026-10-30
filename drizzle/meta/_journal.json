@@ -85,6 +85,13 @@
       "when": 1793378523000,
       "tag": "0011_lawyer_instructed",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793379146774,
+      "tag": "0012_contact_roles",
+      "breakpoints": true
     }
   ]
 }

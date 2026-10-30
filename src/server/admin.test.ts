@@ -7,7 +7,7 @@ import {
   deactivateUser, deleteConsent, deleteOffice, getOrganization, getUser, listAudit, listConditionTemplates, listConsents, listOffices, listUsers,
   restoreUser, saveConditionTemplate, saveConsent, saveOffice, saveOrganization, saveUser,
 } from "./admin.ts";
-import { createContact, ValidationError } from "./contacts.ts";
+import { contactView, createContact, updateContact, ValidationError } from "./contacts.ts";
 import { createDeal, listDeals } from "./deals.ts";
 import { openDb, type Db } from "./db.ts";
 import { slaDays } from "./reports.ts";
@@ -107,6 +107,25 @@ test("organization settings drive reminder thresholds and SLA targets", async ()
   assert.equal(reminderLevel(["2026-03-16"], "2026-03-10", settings.reminders), null);
   assert.deepEqual((await slaDays(db, as.admin.organizationId))[0], ["approved", 3]);
   assert.ok(Array.isArray(await dealReminders(db, as.agent)));
+});
+
+test("contact sub-roles: 'Role: Sub-role' lines, and a contact's sub-role must be listed for its role", async () => {
+  const base = { name: "Keyway Mortgages", sla: { approved: 7, accepted: 7, waiting_to_close: 30 }, reminders: { urgent: 2, warning: 7, notice: 14 }, features: [] };
+  await assert.rejects(saveOrganization(db, as.admin, { ...base, contactSubRoles: "Wizard: Grey" }), /contact role/);
+  await assert.rejects(saveOrganization(db, as.admin, { ...base, contactSubRoles: "Lawyer" }), /contact role/);
+  await saveOrganization(db, as.admin, { ...base, contactSubRoles: "Lawyer: Real Estate\n Lawyer :Real Estate \n\nReal Estate Agent: Buyer's Agent" });
+  assert.deepEqual((await getOrganization(db, as.admin.organizationId)).settings.contactSubRoles, [{ role: "Lawyer", name: "Real Estate" }, { role: "Real Estate Agent", name: "Buyer's Agent" }]);
+
+  const syn = { firstName: "Synthetic", lastName: "Counsel" };
+  await assert.rejects(createContact(db, as.agent, { ...syn, role: "Wizard" }), /role from the list/);
+  await assert.rejects(createContact(db, as.agent, { ...syn, role: "Lawyer", subRole: "Buyer's Agent" }), /sub-role/);
+  await assert.rejects(createContact(db, as.agent, { ...syn, subRole: "Real Estate" }), /sub-role/);
+  const c = await createContact(db, as.agent, { ...syn, company: "Synthetic Law LLP", role: "Lawyer", subRole: "Real Estate" });
+  assert.deepEqual([contactView(c).company, contactView(c).role, contactView(c).subRole], ["Synthetic Law LLP", "Lawyer", "Real Estate"]);
+  await updateContact(db, as.agent, c.id, { ...syn, subRole: "Real Estate" });
+  await assert.rejects(updateContact(db, as.agent, c.id, { ...syn, role: "Banker", subRole: "Real Estate" }), /sub-role/);
+  const cleared = await updateContact(db, as.agent, c.id, { ...syn, role: "", subRole: "" });
+  assert.equal(cleared.role, null);
 });
 
 test("consent templates belong to an office; offices with people can't be deleted", async () => {

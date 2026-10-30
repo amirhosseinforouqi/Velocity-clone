@@ -6,7 +6,7 @@ import { Forbidden, type Actor } from "./access.ts";
 import { fieldKey, sections } from "../components/platform/deal-sections.ts";
 import { archiveContact, createContact, getContact, listContacts, setCasl, updateContact, ValidationError } from "./contacts.ts";
 import { allowedMoves, boardStatuses } from "./deal-status.ts";
-import { createDeal, dealActivity, dealCode, dealHistory, deleteDeal, findDealByCode, getDeal, listDeals, listDeletedDeals, moveDeal, nextMilestone, restoreDeal, saveDeal } from "./deals.ts";
+import { addDealContact, createDeal, dealActivity, dealCode, dealHistory, deleteDeal, findDealByCode, getDeal, listDealContacts, listDeals, listDeletedDeals, moveDeal, nextMilestone, removeDealContact, restoreDeal, saveDeal } from "./deals.ts";
 import { openDb, type Db } from "./db.ts";
 import { hashPassword, verifyPassword } from "./password.ts";
 import { auditLog, contactConsents, organizations, users } from "./schema.ts";
@@ -192,6 +192,28 @@ test("lawyer instructed date saves; the deal list counts conditions by state", a
   assert.deepEqual([row.conditionsRequired, row.conditionsReceived, row.conditionsSatisfied], [n("outstanding"), 1, n("met", "waived")]);
   assert.ok(row.conditionsRequired >= 1 && row.conditionsSatisfied >= 1);
   assert.equal(row.lawyerInstructedDate, "2027-03-04");
+});
+
+test("deal contacts: listed roles only, deal and contact both in scope, one row per contact and role", async () => {
+  const d = await newDeal(as.agent);
+  const lawyer = await createContact(db, as.agent, { firstName: "Synthetic", lastName: "Solicitor", role: "Lawyer" });
+  const referrer = await createContact(db, as.agent, { firstName: "Synthetic", lastName: "Referrer", role: "Referral Source" });
+  const theirs = await createContact(db, as["ottawa.agent"], { firstName: "Other", lastName: "Office" });
+  await addDealContact(db, as.agent, d.id, lawyer.id, "Lawyer");
+  await addDealContact(db, as.agent, d.id, referrer.id, "Referral Source");
+  await assert.rejects(addDealContact(db, as.agent, d.id, lawyer.id, "Lawyer"), /already on this deal/);
+  await assert.rejects(addDealContact(db, as.agent, d.id, lawyer.id, "Wizard"), ValidationError);
+  await assert.rejects(addDealContact(db, as.agent, d.id, theirs.id, "Lawyer"), Forbidden, "contact outside the actor's scope");
+  await assert.rejects(addDealContact(db, as["ottawa.agent"], d.id, theirs.id, "Lawyer"), Forbidden, "deal outside the actor's scope");
+  await assert.rejects(listDealContacts(db, as["ottawa.agent"], d.id), Forbidden);
+
+  const rows = await listDealContacts(db, as.agent, d.id);
+  assert.deepEqual(rows.map((r) => [r.role, r.lastName]), [["Lawyer", "Solicitor"], ["Referral Source", "Referrer"]]);
+  assert.equal((await dealActivity(db, as.agent, d.id)).find((a) => a.action === "contact_add")?.detail, "Synthetic Referrer");
+  await assert.rejects(removeDealContact(db, as["ottawa.agent"], rows[0].id), Forbidden);
+  await removeDealContact(db, as.agent, rows[0].id);
+  await archiveContact(db, as.agent, referrer.id);
+  assert.deepEqual(await listDealContacts(db, as.agent, d.id), [], "removed and archived contacts drop off");
 });
 
 test("status moves follow the rules; park and cancel reinstate to the previous status", async () => {

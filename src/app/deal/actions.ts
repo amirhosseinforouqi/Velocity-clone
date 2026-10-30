@@ -8,7 +8,7 @@ import { addCondition, removeDocument, setConditionStatus, uploadDocument } from
 import { createContact, setCasl, ValidationError } from "@/server/contacts";
 import { getDb } from "@/server/db";
 import type { DealStatus } from "@/server/deal-status";
-import { createDeal, deleteDeal, moveDeal, newDealValues, restoreDeal, saveDeal } from "@/server/deals";
+import { addDealContact, createDeal, deleteDeal, moveDeal, newDealValues, removeDealContact, restoreDeal, saveDeal } from "@/server/deals";
 import { bulkTasks, createTask, dealReminders, myDay, removeTask, today, updateTask } from "@/server/tasks";
 import { lenderChoices } from "@/server/lenders";
 import { validateDeal, type Problem } from "@/server/validate";
@@ -98,6 +98,14 @@ export async function createTaskAction(input: Record<string, unknown>) {
 
 export async function updateTaskAction(id: string, input: Record<string, unknown>) {
   return run(async () => void (await updateTask(await getDb(), await requireActor(), id, input)));
+}
+
+export async function addDealContactAction(dealId: string, contactId: string, role: string) {
+  return run(async () => void (await addDealContact(await getDb(), await requireActor(), dealId, contactId, role)));
+}
+
+export async function removeDealContactAction(id: string) {
+  return run(async () => void (await removeDealContact(await getDb(), await requireActor(), id)));
 }
 
 export async function removeTaskAction(id: string) {
