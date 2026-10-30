@@ -305,3 +305,15 @@ Later, each needs its own go-ahead:
 - Contact groups (#33).
 
 Every slice uses synthetic `@keyway.test` data. Nothing sends email or SMS on its own.
+
+## Progress
+
+- **Slice 1 done** (#1, #2, #8, #9).
+  - Application Purpose includes RevoDoc's purposes.
+  - The Program select has 30 options.
+  - A "File and Lender Details" group: Broker/Origination File #, Lender Ref #, Credit Tier (Prime/Sub-Prime), Rate Hold Days and Expiry, Lender Commitment.
+  - Amortization months, plus Quarterly, Semi-Annually and Annually payment frequencies.
+  - A read-only Calculated Payment (`contractPayment` in `src/server/metrics.ts`), live as you type and never stored.
+  - The report builder filters on Program, Term and Rate Type.
+  - New Loan/Renewal is covered by the existing Application Type.
+  - Tests: `metrics.test.ts`, `reports.test.ts`.

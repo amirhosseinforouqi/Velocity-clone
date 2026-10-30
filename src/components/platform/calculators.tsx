@@ -2,18 +2,12 @@
 
 import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { monthlyPayment } from "@/server/metrics";
 import { money } from "./shell";
 import { greyBtn, input, label, Modal } from "./ui";
 
 export const calculators = ["Scenario Builder", "Mortgage Calculator", "Purchase Calculator", "Closing Costs Calculator", "Land Transfer Calculator"] as const;
 export type CalcKind = (typeof calculators)[number];
-
-// Canadian fixed-rate mortgages compound semi-annually.
-export function monthlyPayment(principal: number, ratePct: number, years: number) {
-  const n = years * 12;
-  const r = Math.pow(1 + ratePct / 200, 1 / 6) - 1;
-  return r ? (principal * r) / (1 - Math.pow(1 + r, -n)) : principal / n;
-}
 
 // Ontario provincial land transfer tax (residential brackets).
 export function ontarioLtt(price: number) {

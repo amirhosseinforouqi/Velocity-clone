@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { dealMetrics, monthlyPayment, num } from "./metrics.ts";
+import { contractPayment, dealMetrics, monthlyPayment, num } from "./metrics.ts";
 import { validateDeal, validSin } from "./validate.ts";
 
 const near = (a: number | null, b: number, msg?: string) => assert.ok(a !== null && Math.abs(a - b) < 0.01, `${msg ?? ""} ${a} != ${b}`);
@@ -9,6 +9,19 @@ test("payments match published amortization figures", () => {
   near(monthlyPayment(400_000, 5, 25), 2326.42, "semi-annual");
   near(monthlyPayment(100_000, 6, 25, "Monthly"), 644.3, "monthly");
   near(monthlyPayment(120_000, 0, 10), 1000, "zero rate");
+  const rp = "mortgageRequest/Rates and Payments/";
+  const pay = (f: Record<string, string>) =>
+    contractPayment(Object.fromEntries(Object.entries({ "Total Loan Amount": "$400,000", "Interest Rate": "5%", Amortization: "25 Years", ...f }).map(([k, v]) => [rp + k, v])));
+  near(pay({}), 2326.42, "contract monthly");
+  near(pay({ "Net Rate": "5%", "Interest Rate": "9%" }), 2326.42, "net rate wins");
+  near(pay({ "Payment Frequency": "Accelerated Bi-Weekly" }), 1163.21, "accelerated bi-weekly");
+  near(pay({ "Payment Frequency": "Accelerated Weekly" }), 581.61, "accelerated weekly");
+  assert.ok(pay({ "Payment Frequency": "Bi-Weekly" })! < 1163.21, "plain bi-weekly spreads 12 payments over 26");
+  near(pay({ "Payment Frequency": "Annually", "Compounded Period": "Annually", Amortization: "1 Year" }), 420_000, "annual");
+  near(pay({ "Interest Rate": "0", Amortization: "", "Amortization Months": "10" }), 40_000, "months only");
+  assert.equal(pay({ "Total Loan Amount": "" }), null, "falls back to mortgage totals, none here");
+  assert.equal(pay({ Amortization: "" }), null);
+  near(contractPayment({ "mortgageRequest/Mortgage Breakdown/1st Mortgage Total": "$400,000", [rp + "Interest Rate"]: "5", [rp + "Amortization"]: "25 Years" }), 2326.42, "1st mortgage fallback");
   assert.deepEqual([num("$4,200"), num("4.79%"), num("25 Years"), num(""), num("abc")], [4200, 4.79, 25, null, null]);
 });
 

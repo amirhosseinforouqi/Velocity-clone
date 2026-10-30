@@ -1,5 +1,5 @@
 // Velocity's deal workspace layout, taken from its section templates (labels only, no client data).
-// A field is "Label" or "Label|type", type being check, select, date or area.
+// A field is "Label" or "Label|type", type being check, select, date, area or calc (read-only, computed in the browser).
 // A group with `cols` is a table; its rows come from `rows` or the placeholder deal's tables.
 export type Group = {
   title?: string;
@@ -87,9 +87,16 @@ export const sections: Section[] = [
       {
         title: "Mortgage Breakdown",
         fields: [
-          "Application Type|select", "Mortgage Type|select", "Loan Type|select", "Application Purpose|select", "Purchase Price",
+          "Application Type|select", "Mortgage Type|select", "Loan Type|select", "Application Purpose|select", "Program|select", "Purchase Price",
           "Down Payment", "1st Mortgage Total", "2nd Mortgage Total", "3rd Mortgage Total", "Insurer|select", "Insurer Ref",
           "Premium Rate", "Mtg Ins Premium", "Total Mortgage Amount with Premium", "LOC Repayment Type|select",
+        ],
+      },
+      {
+        title: "File and Lender Details",
+        fields: [
+          "Broker File #", "Origination File #", "Lender Ref #", "Credit Tier|select", "Rate Hold Days", "Rate Hold Expiry|date",
+          "Lender Commitment|date",
         ],
       },
       { title: "Improvements", cols: ["Description", "Amount", "Progress Advance"] },
@@ -98,7 +105,7 @@ export const sections: Section[] = [
         fields: [
           "Interest Rate", "Discount Rate", "Premium Rate", "Buydown Rate", "Net Rate", "Variable To Prime", "Rate Type|select",
           "Term Type|select", "Payment Frequency|select", "Compounded Period|select", "Term|select", "Amortization|select",
-          "Total Loan Amount", "Monthly Payment", "Payment",
+          "Amortization Months|select", "Total Loan Amount", "Monthly Payment", "Payment", "Calculated Payment|calc",
         ],
       },
       { title: "Qualifying Details", fields: ["Qualifying Rate", "Qualifying Compounded Period|select", "Qualifying Amortization|select", "Qualifying Payment"] },
@@ -188,7 +195,7 @@ export const dealTabs = [
 // Storage key for one workspace field: "section/group/label". Groups repeat labels, so the label alone isn't unique.
 export const fieldKey = (s: { id: string }, g: Group, spec: string) => `${s.id}/${g.title ?? ""}/${spec.split("|")[0]}`;
 
-export const fieldKeys = new Set(sections.flatMap((s) => s.groups.flatMap((g) => (g.fields ?? []).map((f) => fieldKey(s, g, f)))));
+export const fieldKeys = new Set(sections.flatMap((s) => s.groups.flatMap((g) => (g.fields ?? []).filter((f) => !f.endsWith("|calc")).map((f) => fieldKey(s, g, f)))));
 
 // Choices for the common selects. A select not listed here is edited as free text until its lookup exists (admin lookups, step 9).
 const terms = (list: number[]) => list.map((n) => `${n} Year${n > 1 ? "s" : ""}`);
@@ -223,15 +230,29 @@ export const selectOptions: Record<string, string[]> = {
   "Sewage Info": ["Municipal", "Septic", "Other"],
   "Paid By": ["Borrower", "Lender"],
   "Application Type": ["Purchase", "Refinance", "Switch/Transfer", "Renewal", "Pre-Approval"],
-  "Application Purpose": ["Purchase", "Refinance", "Switch/Transfer", "Renewal", "Pre-Approval", "Equity Take Out"],
+  "Application Purpose": [
+    "Purchase", "Refinance", "Switch/Transfer", "Renewal", "Pre-Approval", "Equity Take Out", "Builder", "Construction", "Development",
+    "Renovations", "Other",
+  ],
+  Program: [
+    "Bad Credit", "Bridge Loan", "Business Loan", "Commercial Mortgage", "Construction Loan", "Consumer Proposal Payout",
+    "Debt Consolidation Payout", "Equity Takeout", "First Time Buyer", "HELOC", "Equity Program", "Home Improvement Mortgage",
+    "Legal Action", "Mortgage Renewal", "Networth Program", "New To Canada", "Non Resident", "Other", "Refinance Mortgage", "Rental",
+    "Repeat Buyer", "Reverse Mortgage", "Rent to Own", "Second Home", "Second Mortgage", "Self Employed", "Spousal Buyout",
+    "Stop Foreclosure", "Stop Power Of Sale", "Third Mortgage",
+  ],
+  "Credit Tier": ["Prime", "Sub-Prime"],
   "Mortgage Type": ["Standard", "HELOC", "Collateral"],
   "Loan Type": ["Mortgage", "Line of Credit"],
   "Rate Type": ["Fixed", "Variable", "Adjustable", "Capped Variable"],
   "Term Type": ["Closed", "Open", "Convertible"],
-  "Payment Frequency": ["Monthly", "Semi-Monthly", "Bi-Weekly", "Accelerated Bi-Weekly", "Weekly", "Accelerated Weekly"],
+  "Payment Frequency": [
+    "Monthly", "Semi-Monthly", "Bi-Weekly", "Accelerated Bi-Weekly", "Weekly", "Accelerated Weekly", "Quarterly", "Semi-Annually", "Annually",
+  ],
   "Compounded Period": ["Monthly", "Semi-Annually", "Annually"],
   Term: ["6 Months", ...terms([1, 2, 3, 4, 5, 7, 10])],
-  Amortization: terms([5, 10, 15, 20, 25, 30]),
+  Amortization: terms([5, 10, 15, 20, 25, 30, 35, 40]),
+  "Amortization Months": Array.from({ length: 12 }, (_, i) => String(i)),
   "Charge Type": ["First", "Second", "Third"],
   Insurer: ["CMHC", "Sagen", "Canada Guaranty"],
 };

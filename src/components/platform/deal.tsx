@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, startTransition, useActionState, useContext, useRef, useState, useTransition, type ReactNode } from "react";
+import { createContext, startTransition, useActionState, useContext, useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { CheckCircle, ChevronDown, FileText, Folder } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { deleteDealAction, moveDealAction, saveDealAction } from "@/app/deal/actions";
 import { allowedMoves, dealCode, isReinstate, statusLabel, type DealStatus } from "@/server/deal-status";
 import type { dealHistory, getDeal } from "@/server/deals";
-import { dealMetrics } from "@/server/metrics";
+import { contractPayment, dealMetrics } from "@/server/metrics";
 import type { DealCompliance as Compliance } from "@/server/compliance";
 import type { LenderChoice } from "@/server/lenders";
 import { LENDER, lenderFor, limitsFor, PRODUCT, type Problem } from "@/server/validate";
@@ -63,6 +63,7 @@ function Field({ name, spec }: { name: string; spec: string }) {
         <input type="checkbox" name={name} value="Yes" defaultChecked={value === "Yes"} /> {label}
       </label>
     );
+  if (type === "calc") return <CalcField label={label} />;
   const options = selectOptions[label];
   return (
     <label className="block text-[12.6px] text-[#666]">
@@ -80,6 +81,27 @@ function Field({ name, spec }: { name: string; spec: string }) {
       ) : (
         <input name={disabled ? undefined : name} disabled={disabled} type={type === "date" ? "date" : "text"} defaultValue={value} maxLength={2000} className={input} />
       )}
+    </label>
+  );
+}
+
+// The contract payment, recomputed from the form as the user types (unsaved edits over the saved values).
+function CalcField({ label }: { label: string }) {
+  const { values } = useContext(Values);
+  const ref = useRef<HTMLOutputElement>(null);
+  const [payment, setPayment] = useState(() => contractPayment(values));
+  useEffect(() => {
+    const form = ref.current?.closest("form");
+    if (!form) return;
+    const update = () => setPayment(contractPayment({ ...values, ...(Object.fromEntries(new FormData(form)) as Record<string, string>) }));
+    update();
+    form.addEventListener("input", update);
+    return () => form.removeEventListener("input", update);
+  }, [values]);
+  return (
+    <label className="block text-[12.6px] text-[#666]">
+      <span className="mb-1 block font-semibold">{label}</span>
+      <output ref={ref} title="From amount, rate, amortization and payment frequency" className={cn(input, "flex items-center bg-[#eee]")}>{money(payment === null ? null : Math.round(payment * 100) / 100)}</output>
     </label>
   );
 }

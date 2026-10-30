@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { addDays } from "../lib/dates.ts";
 import type { Actor } from "./access.ts";
 import { listContacts, ValidationError } from "./contacts.ts";
-import { createDeal } from "./deals.ts";
+import { createDeal, saveDeal } from "./deals.ts";
 import { openDb, type Db } from "./db.ts";
 import { dealCode } from "./deal-status.ts";
 import { auditLog, deals, dealStatusHistory, users } from "./schema.ts";
@@ -26,6 +26,9 @@ before(async () => {
   await seedIfEmpty(db);
   for (const u of await db.select().from(users)) as[u.email.split("@")[0]] = u;
 });
+
+const PROGRAM = "mortgageRequest/Mortgage Breakdown/Program";
+const RP = "mortgageRequest/Rates and Payments/";
 
 async function deal(input: Record<string, unknown>, actor = as.agent) {
   const [contact] = await listContacts(db, actor);
@@ -107,6 +110,13 @@ test("report builder: whitelisted columns, parameterised filters", async () => {
   assert.equal((await run("cols=number&f=lender:eq:' or 1=1 --"))!.rows.length, 0);
   assert.deepEqual(codes(await run("cols=number&f=lender:contains:bank %")), [dealCode(d.number)]);
   assert.equal((await run("cols=number&f=lender:contains:%"))!.rows.length, 1);
+
+  // Program, term and rate type are saved workspace fields and filter like any text column; the computed payment is never stored.
+  await saveDeal(db, as.agent, d.id, { [PROGRAM]: "Self Employed", [RP + "Term"]: "5 Years", [RP + "Rate Type"]: "Fixed", [RP + "Calculated Payment"]: "1" });
+  const p = (await run("cols=number,program,term,rateType&f=program:eq:self employed&f=rateType:eq:Fixed"))!;
+  assert.deepEqual(p.rows.map((r) => r.map(text)), [[dealCode(d.number), "Self Employed", "5 Years", "Fixed"]]);
+  assert.equal((await run("cols=number&f=program:eq:Rental"))!.rows.length, 0);
+  assert.ok(!(RP + "Calculated Payment" in (await db.select().from(deals).where(eq(deals.id, d.id)))[0].fields));
 
   // Scope still applies: another office's agent can't find it.
   assert.equal((await runReport(db, as["ottawa.agent"], "build", q("cols=number&f=amount:eq:987654"), NOW))!.rows.length, 0);

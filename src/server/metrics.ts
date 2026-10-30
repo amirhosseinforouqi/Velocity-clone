@@ -16,6 +16,9 @@ export const keys = {
   estimated: `${sp}Estimated Value`,
   rate: [`${rp}Net Rate`, `${rp}Interest Rate`],
   amortization: `${rp}Amortization`,
+  amortizationMonths: `${rp}Amortization Months`,
+  loanAmount: `${rp}Total Loan Amount`,
+  frequency: `${rp}Payment Frequency`,
   compounding: `${rp}Compounded Period`,
   qualifyingRate: `${qd}Qualifying Rate`,
   qualifyingAmortization: `${qd}Qualifying Amortization`,
@@ -32,7 +35,7 @@ export const keys = {
 
 // OSFI minimum qualifying rate: the greater of contract + 2% and this floor. ponytail: hard-coded; move to admin settings when it changes.
 export const MQR_FLOOR = 5.25;
-const perYear: Record<string, number> = { Annually: 1, Monthly: 12, "Semi-Monthly": 24, "Bi-Weekly": 26, Weekly: 52 };
+const perYear: Record<string, number> = { Annually: 1, "Semi-Annually": 2, Quarterly: 4, Monthly: 12, "Semi-Monthly": 24, "Bi-Weekly": 26, Weekly: 52 };
 const compoundsPerYear: Record<string, number> = { Monthly: 12, "Semi-Annually": 2, Annually: 1 };
 
 // "$1,234.50", "4.79%", "25 Years" -> number; blank or junk -> null.
@@ -48,11 +51,30 @@ const sum = (ns: (number | null)[]) => (ns.some((n) => n !== null) ? ns.reduce<n
 
 // Fixed-rate Canadian mortgages compound semi-annually (Interest Act), hence the default.
 export function monthlyPayment(principal: number, ratePct: number, years: number, compounding = "Semi-Annually") {
-  const n = years * 12;
+  return periodicPayment(principal, ratePct, years * 12, 12, compounding);
+}
+
+// One payment when there are `payments` a year over `months` of amortization.
+export function periodicPayment(principal: number, ratePct: number, months: number, payments: number, compounding = "Semi-Annually") {
+  const n = (months / 12) * payments;
   if (ratePct === 0) return principal / n;
   const k = compoundsPerYear[compounding] ?? 2;
-  const i = (1 + ratePct / 100 / k) ** (k / 12) - 1;
+  const i = (1 + ratePct / 100 / k) ** (k / payments) - 1;
   return (principal * i) / (1 - (1 + i) ** -n);
+}
+
+// The contract payment at the deal's own rate, amortization and payment frequency; null until amount and amortization are known.
+// Accelerated frequencies are the monthly payment halved or quartered, the way Canadian lenders define them.
+export function contractPayment(f: Fields) {
+  const principal = num(f[keys.loanAmount]) ?? num(f[keys.withPremium]) ?? sum(keys.mortgages.map((k) => num(f[k])));
+  const months = (num(f[keys.amortization]) ?? 0) * 12 + (num(f[keys.amortizationMonths]) ?? 0);
+  if (!principal || !months) return null;
+  const rate = first(f, keys.rate) ?? 0;
+  const freq = f[keys.frequency] || "Monthly";
+  const comp = f[keys.compounding] || undefined;
+  if (freq === "Accelerated Bi-Weekly") return periodicPayment(principal, rate, months, 12, comp) / 2;
+  if (freq === "Accelerated Weekly") return periodicPayment(principal, rate, months, 12, comp) / 4;
+  return perYear[freq] ? periodicPayment(principal, rate, months, perYear[freq], comp) : null;
 }
 
 export function dealMetrics(f: Fields) {

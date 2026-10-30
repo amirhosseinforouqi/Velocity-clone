@@ -37,6 +37,9 @@ const columns = {
   lender: field("closeOut//Lender"),
   product: field("closeOut//Product"),
   purpose: deals.purpose,
+  program: field("mortgageRequest/Mortgage Breakdown/Program"),
+  term: field("mortgageRequest/Rates and Payments/Term"),
+  rateType: field("mortgageRequest/Rates and Payments/Rate Type"),
   closingDate: deals.closingDate,
   submittedDate: deals.submittedDate,
   entryDate: localDate(deals.createdAt),
@@ -47,7 +50,7 @@ type Field = keyof typeof columns;
 type Kind = "number" | "text" | "status" | "date" | "money";
 export const builderFields: Record<Field, [label: string, kind: Kind]> = {
   number: ["Deal #", "number"], borrower: ["Borrower", "text"], status: ["Status", "status"], amount: ["Mortgage Amount", "money"],
-  lender: ["Lender", "text"], product: ["Product", "text"], purpose: ["Purpose", "text"], closingDate: ["Closing Date", "date"],
+  lender: ["Lender", "text"], product: ["Product", "text"], purpose: ["Purpose", "text"], program: ["Program", "text"], term: ["Term", "text"], rateType: ["Rate Type", "text"], closingDate: ["Closing Date", "date"],
   submittedDate: ["Submitted Date", "date"], entryDate: ["Entry Date", "date"], agent: ["Agent", "text"], office: ["Office", "text"],
 };
 export const builderOps = { eq: "equals", ne: "not equals", contains: "contains", gt: "greater than", lt: "less than", gte: "on or after", lte: "on or before" };
