@@ -188,7 +188,7 @@ function TopBar() {
   const unreadMsgs = portal.messages.reduce((n, m) => n + m.count, 0);
   const readAll = () => { setSeen([...seen, "rem"]); setPortal({ ...portal, unreadNotifications: 0 }); void readNotificationsAction(); };
   return (
-    <nav className="fixed inset-x-0 top-0 z-30 flex h-[60px] items-center border-b border-[#eee] bg-white">
+    <nav className="fixed inset-x-0 top-0 z-30 flex h-[60px] items-center border-b border-[#eee] bg-white print:hidden">
       {open && <div className="fixed inset-0 z-30" onClick={() => setOpen(null)} />}
       <Link href="/" className="ml-[19px] flex h-[51px] w-[140px] shrink-0 items-center gap-2 text-[22px] font-semibold tracking-tight text-[#2c3e50] sm:w-[213px]"><KeyRound className="size-6 text-[#3d81be]" />Keyway</Link>
       <form className="mx-4 hidden h-9 w-[819px] shrink md:flex xl:mr-0 xl:ml-[257px]" onSubmit={(e) => { e.preventDefault(); router.push(`/search?q=${encodeURIComponent(q)}&scope=${scope}`); }}>
@@ -287,7 +287,7 @@ function Sidebar({ toggled, onToggle, deal }: { toggled: boolean; onToggle: () =
     <>
     <aside
       className={cn(
-        "fixed top-[60px] bottom-0 left-0 z-20 flex w-[250px] flex-col bg-[#111] transition-transform",
+        "fixed top-[60px] bottom-0 left-0 z-20 flex w-[250px] flex-col bg-[#111] transition-transform print:hidden",
         toggled ? "md:-translate-x-full" : "max-md:-translate-x-full",
       )}
     >
@@ -358,7 +358,7 @@ export function AppShell({ children, deal }: { children: ReactNode; deal?: OpenD
     <div className="min-h-screen bg-[#f1f1f1] font-sans text-sm text-[#333]">
       <TopBar />
       <Sidebar toggled={toggled} onToggle={() => setToggled(!toggled)} deal={deal} />
-      <main className={cn("pt-[75px] pb-6 transition-[margin]", !toggled && "md:ml-[250px]")}>{children}</main>
+      <main className={cn("pt-[75px] pb-6 transition-[margin] print:m-0 print:p-0", !toggled && "md:ml-[250px]")}>{children}</main>
     </div>
   );
 }

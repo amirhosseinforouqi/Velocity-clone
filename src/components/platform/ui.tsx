@@ -77,8 +77,8 @@ export function Pager({ from, to, total }: { from: number; to: number; total: nu
 // Velocity's static report table: dark head, striped rows.
 export function Grid({ head, rows, empty = "No records to display", min = 700 }: { head: ReactNode[]; rows: ReactNode[][]; empty?: string; min?: number }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-[12.6px]" style={{ minWidth: min }}>
+    <div className="overflow-x-auto print:overflow-visible">
+      <table className="w-full text-[12.6px] print:min-w-0!" style={{ minWidth: min }}>
         <thead className="bg-black/60 text-white"><tr>{head.map((h, i) => <th key={i} className={th}>{h}</th>)}</tr></thead>
         <tbody>
           {rows.length ? rows.map((r, i) => (

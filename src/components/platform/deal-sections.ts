@@ -264,5 +264,6 @@ export const selectOptions: Record<string, string[]> = {
   Amortization: terms([5, 10, 15, 20, 25, 30, 35, 40]),
   "Amortization Months": Array.from({ length: 12 }, (_, i) => String(i)),
   "Charge Type": ["First", "Second", "Third"],
+  "Line Of Business": ["Residential", "Commercial"],
   Insurer: ["CMHC", "Sagen", "Canada Guaranty"],
 };

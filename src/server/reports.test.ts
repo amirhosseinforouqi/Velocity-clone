@@ -4,12 +4,12 @@ import { before, test } from "node:test";
 import { and, eq } from "drizzle-orm";
 import { addDays } from "../lib/dates.ts";
 import type { Actor } from "./access.ts";
-import { listContacts, ValidationError } from "./contacts.ts";
-import { createDeal, saveDeal } from "./deals.ts";
+import { createContact, listContacts, ValidationError } from "./contacts.ts";
+import { addDealContact, createDeal, saveDeal } from "./deals.ts";
 import { openDb, type Db } from "./db.ts";
 import { dealCode } from "./deal-status.ts";
 import { auditLog, deals, dealStatusHistory, users } from "./schema.ts";
-import { exportReport, reportOptions, runReport, toCsv, type Cell, type Table } from "./reports.ts";
+import { deleteSavedReport, exportReport, listSavedReports, reportOptions, reportPresets, runReport, saveReport, toCsv, type Cell, type Table } from "./reports.ts";
 import { seedIfEmpty } from "./seed.ts";
 import { today } from "./tasks.ts";
 
@@ -150,4 +150,48 @@ test("filter options only list what the actor's scope can contain", async () => 
   assert.ok(office.offices.every((o) => o.id === as["office.admin"].officeId));
   assert.ok(!office.agents.some((a) => a.id === as["ottawa.agent"].id));
   assert.equal((await reportOptions(db, as.admin)).offices.length, 2);
+});
+
+test("customer and sales tracking: rate, position, referrer and line of business filters; presets run", async () => {
+  const d = await deal({});
+  await saveDeal(db, as.agent, d.id, {
+    [RP + "Interest Rate"]: "5.25%", [RP + "Term Type"]: "Closed", "insurance//Charge Type": "Second",
+    "mortgageRequest/Lender Submission/Line Of Business": "Commercial",
+  });
+  const run = (s: string, actor = as.agent) => runReport(db, actor, "build", q(s), NOW);
+  const mine = `f=number:eq:${d.number}`;
+  assert.deepEqual(codes(await run(`cols=number&${mine}&f=rate:gte:5`)), [dealCode(d.number)]);
+  assert.equal((await run(`cols=number&${mine}&f=rate:gt:5.25`))!.rows.length, 0);
+  assert.deepEqual((await run(`cols=rate,position,lineOfBusiness,termType&${mine}&f=position:eq:second&f=lineOfBusiness:eq:Commercial`))!.rows.map((r) => r.map(text)), [["5.25", "Second", "Commercial", "Closed"]]);
+
+  // Referrer: the free-text referral name, replaced by a Referral Source contact once one is linked.
+  await saveDeal(db, as.agent, d.id, { "referral//First Name": "Typed", "referral//Last Name": "Referrer" });
+  assert.deepEqual(codes(await run(`cols=number&f=referrer:eq:typed referrer`)), [dealCode(d.number)]);
+  const c = await createContact(db, as.agent, { firstName: "Linked", lastName: "Source", role: "Referral Source" });
+  await addDealContact(db, as.agent, d.id, c.id, "Referral Source");
+  assert.deepEqual(codes(await run(`cols=number&f=referrer:contains:linked`)), [dealCode(d.number)]);
+
+  for (const [, query] of reportPresets) assert.ok((await run(query))!.rows.some((r) => text(r[0]) === dealCode(d.number)));
+});
+
+test("saved reports are per user and re-run under the opener's own scope", async () => {
+  const d = await deal({ amount: "222111" });
+  const query = "name=Mine&cols=number&f=amount:eq:222111";
+  await assert.rejects(saveReport(db, as.agent, "cols=number"), /name/);
+  await assert.rejects(saveReport(db, as.agent, "name=Empty"), /column/);
+  await assert.rejects(saveReport(db, as.agent, "name=Bad&cols=passwordHash"), ValidationError);
+  await saveReport(db, as.agent, query);
+  await saveReport(db, as.agent, query + "&f=status:eq:New Deals"); // same name updates it
+  const [saved, ...rest] = (await listSavedReports(db, as.agent)).filter((r) => r.name === "Mine");
+  assert.equal(rest.length, 0);
+  assert.ok(saved.query.includes("status"));
+  assert.ok(!(await listSavedReports(db, as["ottawa.agent"])).some((r) => r.id === saved.id));
+
+  assert.deepEqual(codes(await runReport(db, as.agent, "build", q(saved.query), NOW)), [dealCode(d.number)]);
+  assert.equal((await runReport(db, as["ottawa.agent"], "build", q(saved.query), NOW))!.rows.length, 0);
+
+  await deleteSavedReport(db, as["ottawa.agent"], saved.id);
+  assert.ok((await listSavedReports(db, as.agent)).some((r) => r.id === saved.id));
+  await deleteSavedReport(db, as.agent, saved.id);
+  assert.ok(!(await listSavedReports(db, as.agent)).some((r) => r.id === saved.id));
 });

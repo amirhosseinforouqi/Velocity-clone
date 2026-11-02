@@ -10,7 +10,7 @@ import { audit } from "./audit.ts";
 import { ValidationError } from "./contacts.ts";
 import type { Db } from "./db.ts";
 import { dealCode, statusLabel, type DealStatus } from "./deal-status.ts";
-import { amlAssessments, contacts, dealBorrowers, deals, dealStatusHistory, offices, users } from "./schema.ts";
+import { amlAssessments, contacts, dealBorrowers, deals, dealStatusHistory, offices, savedReports, users } from "./schema.ts";
 import { TIME_ZONE, today } from "./tasks.ts";
 
 export type Cell = string | number | { text: string; href: string };
@@ -40,6 +40,16 @@ const columns = {
   program: field("mortgageRequest/Mortgage Breakdown/Program"),
   term: field("mortgageRequest/Rates and Payments/Term"),
   rateType: field("mortgageRequest/Rates and Payments/Rate Type"),
+  termType: field("mortgageRequest/Rates and Payments/Term Type"),
+  // The first number in the free-text Interest Rate ("4.79%" is 4.79), so it can be compared.
+  rate: sql<string | null>`substring(${field("mortgageRequest/Rates and Payments/Interest Rate")} from '[0-9]+(?:[.][0-9]+)?')::numeric`,
+  lineOfBusiness: field("mortgageRequest/Lender Submission/Line Of Business"),
+  position: field("insurance//Charge Type"),
+  // The deal's first Referral Source contact, else the free-text referral name.
+  referrer: sql<string | null>`coalesce(
+    (select trim(concat(rc.first_name, ' ', rc.last_name)) from deal_contacts rd join contacts rc on rc.id = rd.contact_id
+     where rd.deal_id = ${deals.id} and rd.role = 'Referral Source' order by rd.created_at limit 1),
+    nullif(trim(concat(${field("referral//First Name")}, ' ', ${field("referral//Last Name")})), ''))`,
   maturityDate: field("mortgageRequest/Payment Summary/Maturity Date"),
   rateExpiry: field("mortgageRequest/File and Lender Details/Rate Hold Expiry"),
   closingDate: deals.closingDate,
@@ -52,7 +62,8 @@ type Field = keyof typeof columns;
 type Kind = "number" | "text" | "status" | "date" | "money";
 export const builderFields: Record<Field, [label: string, kind: Kind]> = {
   number: ["Deal #", "number"], borrower: ["Borrower", "text"], status: ["Status", "status"], amount: ["Mortgage Amount", "money"],
-  lender: ["Lender", "text"], product: ["Product", "text"], purpose: ["Purpose", "text"], program: ["Program", "text"], term: ["Term", "text"], rateType: ["Rate Type", "text"], maturityDate: ["Maturity Date", "date"], rateExpiry: ["Rate Hold Expiry", "date"], closingDate: ["Closing Date", "date"],
+  lender: ["Lender", "text"], product: ["Product", "text"], purpose: ["Purpose", "text"], program: ["Program", "text"], term: ["Term", "text"], rateType: ["Rate Type", "text"], termType: ["Term Type", "text"], rate: ["Client Rate (%)", "number"],
+  lineOfBusiness: ["Line Of Business", "text"], position: ["Mortgage Position", "text"], referrer: ["Referrer", "text"], maturityDate: ["Maturity Date", "date"], rateExpiry: ["Rate Hold Expiry", "date"], closingDate: ["Closing Date", "date"],
   submittedDate: ["Submitted Date", "date"], entryDate: ["Entry Date", "date"], agent: ["Agent", "text"], office: ["Office", "text"],
 };
 export const builderOps = { eq: "equals", ne: "not equals", contains: "contains", gt: "greater than", lt: "less than", gte: "on or after", lte: "on or before" };
@@ -60,6 +71,11 @@ type Op = keyof typeof builderOps;
 const cmp = { eq: "=", ne: "<>", gt: ">", lt: "<", gte: ">=", lte: "<=" };
 export const opsFor: Record<Kind, Op[]> = { text: ["eq", "ne", "contains"], status: ["eq", "ne"], number: ["eq", "ne", "gt", "lt", "gte", "lte"], money: ["eq", "ne", "gt", "lt", "gte", "lte"], date: ["eq", "ne", "gt", "lt", "gte", "lte"] };
 export const defaultCols: Field[] = ["number", "borrower", "status", "amount", "lender", "closingDate", "agent"];
+// RevoDoc's Customer and Sales Tracking, as builder queries. Add filters (e.g. Client Rate on or after 5) in step 3.
+export const reportPresets: [name: string, query: string][] = [
+  ["Customer Tracking", "name=Customer+Tracking&cols=number,borrower,status,purpose,lineOfBusiness,termType,term,rateType,rate,maturityDate,closingDate,agent"],
+  ["Sales Tracking", "name=Sales+Tracking&cols=number,borrower,status,amount,lender,position,referrer,agent,submittedDate,closingDate"],
+];
 
 // ponytail: loads up to MAX_ROWS scoped deals and aggregates in JS; move the GROUP BYs into SQL once an organization outgrows it.
 function dealRows(db: Db, actor: Actor, where?: SQL) {
@@ -217,14 +233,39 @@ function condition(spec: string): SQL {
   return sql`${col} ${sql.raw(cmp[op as Exclude<Op, "contains">])} ${v}`;
 }
 
-function builder(db: Db, actor: Actor, q: URSP) {
+function parseBuilder(q: URSP) {
   const cols = (q.get("cols") ?? "").split(",").filter(Boolean);
   if (!cols.length) return null;
   const bad = cols.find((c) => !(c in builderFields));
   if (bad) throw new ValidationError(`Unknown column: ${bad.slice(0, 40)}`);
   const filters = q.getAll("f").filter(Boolean);
   if (filters.length > 10) throw new ValidationError("At most 10 filters");
-  return runBuilder(db, actor, (q.get("name") ?? "").trim().slice(0, 100) || "Custom Report", cols as Field[], and(...filters.map(condition)));
+  return { title: (q.get("name") ?? "").trim().slice(0, 100) || "Custom Report", cols: cols as Field[], where: and(...filters.map(condition)) };
+}
+
+function builder(db: Db, actor: Actor, q: URSP) {
+  const b = parseBuilder(q);
+  return b && runBuilder(db, actor, b.title, b.cols, b.where);
+}
+
+// My Reports: saved per user. Only the query is stored; it re-runs under whoever opens it, through dealScope.
+export function listSavedReports(db: Db, actor: Actor) {
+  return db.select({ id: savedReports.id, name: savedReports.name, query: savedReports.query }).from(savedReports)
+    .where(and(eq(savedReports.userId, actor.id), eq(savedReports.organizationId, actor.organizationId))).orderBy(asc(savedReports.name));
+}
+
+export async function saveReport(db: Db, actor: Actor, query: string) {
+  const q = new URLSearchParams(query);
+  const name = (q.get("name") ?? "").trim();
+  if (!name || name.length > 100) throw new ValidationError("A report name of up to 100 characters is required");
+  if (query.length > 4000 || !parseBuilder(q)) throw new ValidationError("Select at least one column");
+  await db.insert(savedReports).values({ organizationId: actor.organizationId, userId: actor.id, name, query: q.toString() })
+    .onConflictDoUpdate({ target: [savedReports.userId, savedReports.name], set: { query: q.toString() } });
+}
+
+export async function deleteSavedReport(db: Db, actor: Actor, id: string) {
+  if (!UUID.test(id)) return;
+  await db.delete(savedReports).where(and(eq(savedReports.id, id), eq(savedReports.userId, actor.id)));
 }
 
 async function runBuilder(db: Db, actor: Actor, title: string, cols: Field[], where?: SQL): Promise<Table> {

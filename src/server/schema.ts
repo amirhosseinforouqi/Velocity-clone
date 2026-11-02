@@ -185,6 +185,16 @@ export const dealContacts = pgTable("deal_contacts", {
   createdAt: createdAt(),
 }, (t) => [uniqueIndex("deal_contacts_uq").on(t.dealId, t.contactId, t.role)]);
 
+// A user's saved report builder queries ("My Reports"). Running one applies the runner's own scope, not the saver's.
+export const savedReports = pgTable("saved_reports", {
+  id: id(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+  userId: uuid("user_id").notNull().references(() => users.id),
+  name: text("name").notNull(),
+  query: text("query").notNull(),
+  createdAt: createdAt(),
+}, (t) => [uniqueIndex("saved_reports_user_name_uq").on(t.userId, t.name)]);
+
 // Each deal type's checklist (RevoDoc's progress templates). Steps are deactivated, never deleted, so deals keep their history.
 export const progressSteps = pgTable("progress_steps", {
   id: id(),

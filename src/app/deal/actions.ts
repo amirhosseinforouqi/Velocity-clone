@@ -11,6 +11,7 @@ import { getDb } from "@/server/db";
 import type { DealStatus } from "@/server/deal-status";
 import { addDealContact, createDeal, deleteDeal, moveDeal, newDealValues, removeDealContact, restoreDeal, saveDeal } from "@/server/deals";
 import { completeStep, createStepTasks, reopenStep } from "@/server/progress";
+import { deleteSavedReport, saveReport } from "@/server/reports";
 import { bulkTasks, createTask, dealReminders, myDay, removeTask, today, updateTask } from "@/server/tasks";
 import { lenderChoices } from "@/server/lenders";
 import { validateDeal, type Problem } from "@/server/validate";
@@ -108,6 +109,14 @@ export async function addDealContactAction(dealId: string, contactId: string, ro
 
 export async function completeStepAction(dealId: string, stepId: string, on: string) {
   return run(async () => completeStep(await getDb(), await requireActor(), dealId, stepId, on));
+}
+
+export async function saveReportAction(query: string) {
+  return run(async () => saveReport(await getDb(), await requireActor(), query));
+}
+
+export async function deleteSavedReportAction(id: string) {
+  return run(async () => deleteSavedReport(await getDb(), await requireActor(), id));
 }
 
 export async function saveAftercareAction(dealId: string, id: string | null, input: AftercareInput) {

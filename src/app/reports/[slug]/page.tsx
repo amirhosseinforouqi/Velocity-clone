@@ -5,7 +5,7 @@ import { AppReport } from "@/components/platform/reports";
 import { ValidationError } from "@/server/contacts";
 import { getDb } from "@/server/db";
 import { statusLabel } from "@/server/deal-status";
-import { builderFields, builderOps, defaultCols, oneTouch, opsFor, pendingReports, reportOptions, runReport, slaDays, type Table } from "@/server/reports";
+import { builderFields, builderOps, defaultCols, listSavedReports, oneTouch, opsFor, pendingReports, reportOptions, reportPresets, runReport, slaDays, type Table } from "@/server/reports";
 
 type Search = Record<string, string | string[] | undefined>;
 
@@ -37,7 +37,7 @@ export default async function ReportPage({ params, searchParams }: { params: Pro
       error={error}
       pending={pending}
       options={await reportOptions(db, actor)}
-      builder={{ fields: builderFields, ops: builderOps, opsFor, defaultCols }}
+      builder={{ fields: builderFields, ops: builderOps, opsFor, defaultCols, presets: reportPresets, saved: slug === "build" ? await listSavedReports(db, actor) : [] }}
       oneTouch={oneTouch}
       slaNote={`Targets: ${(await slaDays(db, actor.organizationId)).map(([s, n]) => `${statusLabel[s]} ${n} days`).join(", ")}. Days are counted from when the deal entered its current status.`}
     />

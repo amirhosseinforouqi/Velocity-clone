@@ -345,3 +345,9 @@ Every slice uses synthetic `@keyway.test` data. Nothing sends email or SMS on it
   - The Maturities and Rate Expiries one-touch reports read the deal's Maturity Date and Rate Hold Expiry fields. Both are also available in the report builder.
   - Not built: RevoDoc's Confirm Before Sending and Receivers, because Keyway never contacts the client itself.
   - Tests: `tasks.test.ts`. Checked in the browser: added an item on a test deal, saw it on My Day, ran Mark Done (date moved on a year, "1 of 2"), turned it off and on, and ran the Maturities report.
+- **Slice 8 done** (#34, #35, #36).
+  - The report builder has a Tracking list with two presets. Customer Tracking shows purpose, line of business, term type, term, rate type, client rate, maturity and closing. Sales Tracking shows amount, lender, mortgage position, referrer, submitted and closing.
+  - New builder columns you can also filter on: Term Type, Client Rate (%), Line Of Business, Mortgage Position and Referrer. Client Rate is the first number in the free-text Interest Rate, so "5.25%" counts as 5.25. Referrer is the deal's first Referral Source contact, or the typed referral name if there isn't one.
+  - My Reports are now stored in the database per user (migration 0015, `saved_reports`) instead of in the browser. Saving again under the same name replaces the report. Only the owner sees or deletes it, and it always runs over the deals the person opening it can see.
+  - Print / PDF uses the browser's own print dialog, which can save as PDF. Keyway doesn't generate a PDF file itself. While printing, the navigation and builder panels are hidden.
+  - Tests: `reports.test.ts`. Checked in the browser: opened the presets, ran Customer Tracking (12 columns), saved it to My Reports, opened it from the saved link and deleted it. Production reports still load. The print dialog itself wasn't opened.

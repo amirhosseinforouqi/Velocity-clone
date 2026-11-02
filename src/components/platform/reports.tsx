@@ -1,17 +1,19 @@
 "use client";
 
-import { useState, useSyncExternalStore, type ReactNode } from "react";
-import { ChevronLeft, Download, FileChartLine, Plus, Search, Trash2 } from "lucide-react";
+import { useState, useTransition, type ReactNode } from "react";
+import { ChevronLeft, Download, FileChartLine, Plus, Printer, Search, Trash2 } from "lucide-react";
 import Form from "next/form";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { deleteSavedReportAction, saveReportAction } from "@/app/deal/actions";
 import { cn } from "@/lib/utils";
 import type { builderFields, builderOps, Cell, opsFor, Table } from "@/server/reports";
 import { AppShell } from "./shell";
 import { blueBtn, greenBtn, greyBtn, Grid, input, label, PageHeader, panel } from "./ui";
 
 type Options = { agents: { id: string; name: string }[]; offices: { id: string; name: string }[] };
-type Builder = { fields: typeof builderFields; ops: typeof builderOps; opsFor: typeof opsFor; defaultCols: string[] };
+type Saved = { id: string; name: string; query: string };
+type Builder = { fields: typeof builderFields; ops: typeof builderOps; opsFor: typeof opsFor; defaultCols: string[]; presets: [string, string][]; saved: Saved[] };
 type Props = {
   slug: string; title: string; query: string; table: Table | null; error: string; pending: boolean;
   options: Options; builder: Builder; oneTouch: [string, string, boolean][]; slaNote: string;
@@ -25,7 +27,7 @@ function Box({ title, children, tools }: { title: ReactNode; children: ReactNode
     <div className={panel}>
       <div className="flex flex-wrap items-center gap-2 border-b border-[#f4f4f4] px-[15px] py-2.5">
         <h3 className="text-lg text-[#444]">{title}</h3>
-        <div className="ml-auto flex flex-wrap gap-2">{tools}</div>
+        <div className="ml-auto flex flex-wrap gap-2 print:hidden">{tools}</div>
       </div>
       <div className="p-[15px]">{children}</div>
     </div>
@@ -51,6 +53,7 @@ function TableView({ slug, query, table, back }: { slug: string; query: string; 
       tools={<>
         {to && <Link href={to} className={cn(greyBtn, btn)}><ChevronLeft className="size-3.5" /> Back</Link>}
         <a href={`/reports/${slug}/export${query ? `?${query}` : ""}`} className={cn(greenBtn, btn)}><Download className="size-3.5" /> Export CSV</a>
+        <button type="button" onClick={() => window.print()} className={cn(greyBtn, btn)}><Printer className="size-3.5" /> Print / PDF</button>
       </>}
     >
       {table.note && <p className="mb-2 text-[12.6px] text-[#8a6d3b]">{table.note}</p>}
@@ -83,7 +86,7 @@ function Pick({ name, text, value, options, all }: { name: string; text: string;
 // GET form: the filters live in the URL, so the page, a reload and the CSV all see the same report.
 function Filters({ slug, q, options, children }: { slug: string; q: URLSearchParams; options: Options; children?: ReactNode }) {
   return (
-    <Form key={q.toString()} action={`/reports/${slug}`} className={cn(panel, "flex flex-wrap items-end gap-3 p-[15px]")}>
+    <Form key={q.toString()} action={`/reports/${slug}`} className={cn(panel, "flex flex-wrap items-end gap-3 p-[15px] print:hidden")}>
       {options.offices.length > 1 && <Pick name="office" text="Office" value={q.get("office") ?? ""} options={options.offices} all="All Offices" />}
       {options.agents.length > 1 && <Pick name="agent" text="Agent" value={q.get("agent") ?? ""} options={options.agents} all="All Agents" />}
       {children}
@@ -123,20 +126,6 @@ function OneTouch({ cards, query, table }: { cards: [string, string, boolean][];
 }
 
 type Filter = { field: string; op: string; value: string };
-type Saved = { name: string; query: string };
-const STORE = "keyway.reports";
-
-// ponytail: saved reports live in this browser only; move them to a table if they need to follow the user.
-const listeners = new Set<() => void>();
-const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
-const snapshot = () => { try { return localStorage.getItem(STORE) ?? "[]"; } catch { return "[]"; } };
-function parseSaved(raw: string): Saved[] {
-  try { return JSON.parse(raw); } catch { return []; }
-}
-function writeSaved(s: Saved[]) {
-  try { localStorage.setItem(STORE, JSON.stringify(s)); } catch { /* storage blocked: nothing saved */ }
-  listeners.forEach((l) => l());
-}
 
 function BuildReport({ q, query, table, b }: { q: URLSearchParams; query: string; table: Table | null; b: Builder }) {
   const router = useRouter();
@@ -145,8 +134,11 @@ function BuildReport({ q, query, table, b }: { q: URLSearchParams; query: string
   const [name, setName] = useState(q.get("name") ?? "");
   const [cols, setCols] = useState<string[]>(q.get("cols")?.split(",") ?? b.defaultCols);
   const [filters, setFilters] = useState<Filter[]>(q.getAll("f").map((f) => { const [field, op, ...v] = f.split(":"); return { field, op, value: v.join(":") }; }));
-  const mine = parseSaved(useSyncExternalStore(subscribe, snapshot, () => "[]"));
+  const mine = b.saved;
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, start] = useTransition();
+  const act = (fn: () => Promise<{ error?: string }>, done = "") => start(async () => { const r = await fn(); setError(r.error ?? ""); setNotice(r.error ? "" : done); });
 
   const current = () => {
     const p = new URLSearchParams({ name: name.trim(), cols: cols.join(",") });
@@ -159,31 +151,33 @@ function BuildReport({ q, query, table, b }: { q: URLSearchParams; query: string
     setError("");
     setStep(step + 1);
   };
-  const save = () => {
-    writeSaved([...mine.filter((m) => m.name !== name.trim()), { name: name.trim(), query: current() }]);
-  };
-  const remove = (s: Saved) => { writeSaved(mine.filter((m) => m !== s)); };
+  const save = () => act(() => saveReportAction(current()), `Saved "${name.trim()}" to My Reports.`);
+  const remove = (s: Saved) => act(() => deleteSavedReportAction(s.id));
   const opsOf = (field: string) => b.opsFor[b.fields[field as keyof Builder["fields"]][1]];
   const steps = ["Report Name", "Columns", "Filters"];
 
   return (
     <div className="mx-[25px] grid gap-5 lg:grid-cols-[240px_1fr]">
-      <div className="h-fit bg-white p-[15px] shadow-[0_0_4px_rgba(0,0,0,0.1)]">
+      <div className="h-fit bg-white p-[15px] shadow-[0_0_4px_rgba(0,0,0,0.1)] print:hidden">
+        <h3 className="mb-2 text-lg text-[#444]">Tracking</h3>
+        <ul className="mb-4 text-[12.6px]">
+          {b.presets.map(([n, query]) => <li key={n} className="border-b border-[#eee] py-1.5"><Link href={`/reports/build?${query}`} className={linkCls}>{n}</Link></li>)}
+        </ul>
         <h3 className="mb-2 text-lg text-[#444]">My Reports</h3>
         {mine.length ? (
           <ul className="text-[12.6px]">
             {mine.map((s) => (
-              <li key={s.name} className="flex items-center gap-2 border-b border-[#eee] py-1.5">
+              <li key={s.id} className="flex items-center gap-2 border-b border-[#eee] py-1.5">
                 <Link href={`/reports/build?${s.query}`} className={linkCls}>{s.name}</Link>
-                <button onClick={() => remove(s)} aria-label={`Delete ${s.name}`} className="ml-auto text-[#d9534f]"><Trash2 className="size-3.5" /></button>
+                <button onClick={() => remove(s)} disabled={busy} aria-label={`Delete ${s.name}`} className="ml-auto text-[#d9534f]"><Trash2 className="size-3.5" /></button>
               </li>
             ))}
           </ul>
         ) : <p className="text-[12.6px] text-[#999]">No saved reports.</p>}
-        <p className="mt-2 text-[11px] text-[#999]">Saved in this browser only.</p>
+        <p className="mt-2 text-[11px] text-[#999]">Only you see your saved reports. Each one runs over the deals you can see.</p>
       </div>
       <div className="min-w-0">
-        <div className="mb-5 bg-white p-[15px] shadow-[0_0_4px_rgba(0,0,0,0.1)]">
+        <div className="mb-5 bg-white p-[15px] shadow-[0_0_4px_rgba(0,0,0,0.1)] print:hidden">
           <ol className="mb-4 flex flex-wrap gap-2 text-[12.6px]">
             {steps.map((s, i) => (
               <li key={s}>
@@ -194,6 +188,7 @@ function BuildReport({ q, query, table, b }: { q: URLSearchParams; query: string
             ))}
           </ol>
           {error && <p className="mb-3 rounded-[4px] border border-[#ebccd1] bg-[#f2dede] p-2 text-[12.6px] text-[#a94442]">{error}</p>}
+          {notice && <p role="status" className="mb-3 rounded-[4px] border border-[#d6e9c6] bg-[#dff0d8] p-2 text-[12.6px] text-[#3c763d]">{notice}</p>}
           {step === 0 && (
             <label className="block max-w-[400px]"><span className={label}>Report Name</span><input value={name} maxLength={100} onChange={(e) => setName(e.target.value)} className={input} /></label>
           )}
@@ -234,7 +229,7 @@ function BuildReport({ q, query, table, b }: { q: URLSearchParams; query: string
             {step > 0 && <button onClick={() => setStep(step - 1)} className={cn(greyBtn, "px-3 py-1.5 text-[12.6px]")}>Previous</button>}
             {step < 2 ? <button onClick={next} className={cn(blueBtn, "px-3 py-1.5 text-[12.6px]")}>Next</button> : <>
               <button onClick={() => router.push(`/reports/build?${current()}`)} className={cn(blueBtn, "flex items-center gap-1 px-3 py-1.5 text-[12.6px]")}><Search className="size-3.5" /> Generate</button>
-              <button onClick={save} className={cn(greenBtn, "px-3 py-1.5 text-[12.6px]")}>Save to My Reports</button>
+              <button onClick={save} disabled={busy} className={cn(greenBtn, "px-3 py-1.5 text-[12.6px]")}>Save to My Reports</button>
             </>}
           </div>
         </div>
