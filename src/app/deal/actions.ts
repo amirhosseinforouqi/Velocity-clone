@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireActor } from "@/auth";
 import { Forbidden } from "@/server/access";
+import { aftercareDone, saveAftercare, type AftercareInput } from "@/server/aftercare";
 import { saveAmlAssessment, setCompliance } from "@/server/compliance";
 import { addCondition, removeDocument, setConditionStatus, uploadDocument } from "@/server/conditions";
 import { createContact, setCasl, ValidationError } from "@/server/contacts";
@@ -107,6 +108,14 @@ export async function addDealContactAction(dealId: string, contactId: string, ro
 
 export async function completeStepAction(dealId: string, stepId: string, on: string) {
   return run(async () => completeStep(await getDb(), await requireActor(), dealId, stepId, on));
+}
+
+export async function saveAftercareAction(dealId: string, id: string | null, input: AftercareInput) {
+  return run(async () => saveAftercare(await getDb(), await requireActor(), dealId, id, input));
+}
+
+export async function aftercareDoneAction(id: string) {
+  return run(async () => aftercareDone(await getDb(), await requireActor(), id, today()));
 }
 
 export async function reopenStepAction(dealId: string, stepId: string) {

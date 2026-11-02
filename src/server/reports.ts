@@ -40,6 +40,8 @@ const columns = {
   program: field("mortgageRequest/Mortgage Breakdown/Program"),
   term: field("mortgageRequest/Rates and Payments/Term"),
   rateType: field("mortgageRequest/Rates and Payments/Rate Type"),
+  maturityDate: field("mortgageRequest/Payment Summary/Maturity Date"),
+  rateExpiry: field("mortgageRequest/File and Lender Details/Rate Hold Expiry"),
   closingDate: deals.closingDate,
   submittedDate: deals.submittedDate,
   entryDate: localDate(deals.createdAt),
@@ -50,7 +52,7 @@ type Field = keyof typeof columns;
 type Kind = "number" | "text" | "status" | "date" | "money";
 export const builderFields: Record<Field, [label: string, kind: Kind]> = {
   number: ["Deal #", "number"], borrower: ["Borrower", "text"], status: ["Status", "status"], amount: ["Mortgage Amount", "money"],
-  lender: ["Lender", "text"], product: ["Product", "text"], purpose: ["Purpose", "text"], program: ["Program", "text"], term: ["Term", "text"], rateType: ["Rate Type", "text"], closingDate: ["Closing Date", "date"],
+  lender: ["Lender", "text"], product: ["Product", "text"], purpose: ["Purpose", "text"], program: ["Program", "text"], term: ["Term", "text"], rateType: ["Rate Type", "text"], maturityDate: ["Maturity Date", "date"], rateExpiry: ["Rate Hold Expiry", "date"], closingDate: ["Closing Date", "date"],
   submittedDate: ["Submitted Date", "date"], entryDate: ["Entry Date", "date"], agent: ["Agent", "text"], office: ["Office", "text"],
 };
 export const builderOps = { eq: "equals", ne: "not equals", contains: "contains", gt: "greater than", lt: "less than", gte: "on or after", lte: "on or before" };
@@ -238,9 +240,10 @@ async function runBuilder(db: Db, actor: Actor, title: string, cols: Field[], wh
 }
 
 // One-touch reports are fixed builder queries over a date range. The contact ones need fields contacts don't have yet.
+// Maturities and Rate Expiries read the deal's Maturity Date and Rate Hold Expiry fields.
 export const oneTouch: [kind: string, title: string, ready: boolean][] = [
   ["deals-all", "Deals - All", true], ["deals-entry", "Deals - Entry Date", true], ["deals-closing", "Deals - Closing Date", true], ["leads", "Leads", true],
-  ["birthdays", "Birthdays", false], ["anniversaries", "Anniversaries", false], ["maturities", "Maturities", false], ["rate-expiries", "Rate Expiries", false], ["contacts", "Contacts", false],
+  ["birthdays", "Birthdays", false], ["anniversaries", "Anniversaries", false], ["maturities", "Maturities", true], ["rate-expiries", "Rate Expiries", true], ["contacts", "Contacts", false],
 ];
 
 const dealHeadFields: Field[] = ["number", "borrower", "status", "amount", "lender", "product", "closingDate", "entryDate", "agent", "office"];
@@ -251,9 +254,10 @@ function oneTouchReport(db: Db, actor: Actor, q: URSP) {
   const [kind, title] = found;
   const start = q.get("start") ?? "", end = q.get("end") ?? "";
   if ((start && !isDay(start)) || (end && !isDay(end))) throw new ValidationError("Dates must be YYYY-MM-DD");
-  const col = kind === "deals-closing" ? deals.closingDate : columns.entryDate;
-  const range = kind === "deals-all" ? undefined : and(start ? sql`${col} >= ${start}` : undefined, end ? sql`${col} <= ${end}` : undefined);
-  return runBuilder(db, actor, `${title} Report`, dealHeadFields, and(range, kind === "leads" ? eq(deals.status, "lead") : undefined));
+  const extra = ({ maturities: "maturityDate", "rate-expiries": "rateExpiry" } as const)[kind as "maturities"];
+  const col = extra ? columns[extra] : kind === "deals-closing" ? deals.closingDate : columns.entryDate;
+  const range = kind === "deals-all" ? undefined : and(extra ? sql`coalesce(${col}, '') <> ''` : undefined, start ? sql`${col} >= ${start}` : undefined, end ? sql`${col} <= ${end}` : undefined);
+  return runBuilder(db, actor, `${title} Report`, extra ? [...dealHeadFields, extra] : dealHeadFields, and(range, kind === "leads" ? eq(deals.status, "lead") : undefined));
 }
 
 // AML: every borrower on the scoped deals past the lead stage, with their assessment or "Not assessed".

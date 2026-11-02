@@ -7,6 +7,8 @@ import type { Actor } from "./access.ts";
 import { listContacts } from "./contacts.ts";
 import { createDeal, saveDeal } from "./deals.ts";
 import { openDb, type Db } from "./db.ts";
+import { addMonths, aftercareDone, dueAftercare, saveAftercare } from "./aftercare.ts";
+import { runReport } from "./reports.ts";
 import { completeStep, createStepTasks, DEAL_TYPE, dealProgress, reopenStep, saveProgressStep } from "./progress.ts";
 import { auditLog, tasks, users } from "./schema.ts";
 import { seedIfEmpty } from "./seed.ts";
@@ -157,4 +159,42 @@ test("progress steps: a checklist per deal type, prerequisites, tasks from todos
   const other = as["ottawa.agent"];
   await assert.rejects(dealProgress(db, other, deal.id), /not found/);
   await assert.rejects(completeStep(db, other, deal.id, approval, today()), /not found/);
+});
+
+test("after care: due on My Day, done rolls the date on, max times and turning off stop it; maturities report", async () => {
+  assert.equal(addMonths("2026-01-31", 1), "2026-02-28");
+  assert.equal(addMonths("2026-11-15", 12), "2027-11-15");
+  const deal = await newApplication();
+  const item = (x = {}) => ({ label: "Annual review", nextDate: NOW, periodMonths: 12, maxTimes: 2, active: true, ...x });
+  await assert.rejects(saveAftercare(db, as.agent2, deal.id, null, item()), /Deal not found/);
+  await assert.rejects(saveAftercare(db, as.agent, deal.id, null, item({ nextDate: "soon" })), /next date/);
+  const id = await saveAftercare(db, as.agent, deal.id, null, item());
+  const once = await saveAftercare(db, as.agent, deal.id, null, item({ label: "Closing gift", periodMonths: 0 }));
+  const off = await saveAftercare(db, as.agent, deal.id, null, item({ label: "Paused", active: false }));
+
+  const due = async (actor = as.agent, d = NOW) => (await dueAftercare(db, actor, d)).filter((a) => a.dealId === deal.id).map((a) => a.label).sort();
+  assert.deepEqual(await due(), ["Annual review", "Closing gift"]);
+  assert.deepEqual(await due(as.agent2), []);
+  assert.deepEqual(await due(as.agent, addDays(NOW, -1)), []);
+
+  await aftercareDone(db, as.agent, id, NOW);
+  await assert.rejects(aftercareDone(db, as.agent, id, NOW), /isn't due until 2027-03-10/);
+  await aftercareDone(db, as.agent, once, NOW);
+  assert.deepEqual(await due(), []);
+  assert.deepEqual(await due(as.agent, "2027-03-10"), ["Annual review"]);
+  await aftercareDone(db, as.agent, id, "2027-03-10");
+  await assert.rejects(aftercareDone(db, as.agent, id, "2030-01-01"), /turned off/);
+  await assert.rejects(aftercareDone(db, as.agent, off, NOW), /turned off/);
+  await assert.rejects(aftercareDone(db, as.agent2, off, NOW), /Deal not found/);
+  assert.deepEqual(await due(as.agent, "2030-01-01"), []);
+  await saveAftercare(db, as.agent, deal.id, off, item({ label: "Paused", active: true }));
+  assert.deepEqual(await due(), ["Paused"]);
+
+  await saveDeal(db, as.agent, deal.id, { "mortgageRequest/Payment Summary/Maturity Date": "2031-06-30" });
+  const q = (x: Record<string, string>) => new URLSearchParams({ kind: "maturities", ...x });
+  const hit = await runReport(db, as.agent, "one-touch", q({ start: "2031-06-01", end: "2031-06-30" }));
+  assert.ok(hit!.rows.some((r) => r.at(-1) === "2031-06-30"));
+  assert.equal(hit!.head.at(-1), "Maturity Date");
+  assert.equal((await runReport(db, as.agent, "one-touch", q({ start: "2031-07-01" })))!.rows.some((r) => r.at(-1) === "2031-06-30"), false);
+  assert.equal((await runReport(db, as.agent2, "one-touch", q({})))!.rows.some((r) => r.at(-1) === "2031-06-30"), false);
 });

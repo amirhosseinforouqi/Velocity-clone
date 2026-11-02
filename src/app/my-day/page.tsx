@@ -1,6 +1,7 @@
 import { requireActor } from "@/auth";
 import { AppMyDay } from "@/components/platform/myday";
 import { isDay } from "@/lib/dates";
+import { dueAftercare } from "@/server/aftercare";
 import { getDb } from "@/server/db";
 import { myDay, today } from "@/server/tasks";
 
@@ -10,5 +11,6 @@ export default async function MyDayPage({ searchParams }: { searchParams: Promis
   const actor = await requireActor();
   const now = today();
   const date = isDay(d) ? d : now;
-  return <AppMyDay date={date} today={now} tasks={await myDay(await getDb(), actor, date, now)} />;
+  const db = await getDb();
+  return <AppMyDay date={date} today={now} tasks={await myDay(db, actor, date, now)} aftercare={await dueAftercare(db, actor, date)} />;
 }

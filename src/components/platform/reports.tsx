@@ -115,7 +115,7 @@ function OneTouch({ cards, query, table }: { cards: [string, string, boolean][];
           )}
           {ready
             ? <button className={cn(blueBtn, "px-3 py-1.5 text-[12.6px]")}>View Report</button>
-            : <p className="text-[12.6px] text-[#999]">Needs contact fields (birthday, anniversary, maturity, rate expiry) that aren&apos;t in Keyway yet.</p>}
+            : <p className="text-[12.6px] text-[#999]">Needs contact fields (birthday, anniversary) that aren&apos;t in Keyway yet.</p>}
         </Form>
       ))}
     </div>

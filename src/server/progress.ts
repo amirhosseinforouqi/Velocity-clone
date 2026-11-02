@@ -5,6 +5,7 @@ import { addDays, isDay } from "../lib/dates.ts";
 import { selectOptions } from "../components/platform/deal-sections.ts";
 import { Forbidden, type Actor } from "./access.ts";
 import { mustOrgAdmin, text } from "./admin.ts";
+import { listAftercare } from "./aftercare.ts";
 import { audit } from "./audit.ts";
 import { ValidationError } from "./contacts.ts";
 import type { Db } from "./db.ts";
@@ -85,6 +86,7 @@ export async function dealProgress(db: Db, actor: Actor, dealId: string) {
       completedOn: done.find((d) => d.stepId === s.id)?.completedOn ?? null,
       tasksCreated: made.some((m) => m.stepId === s.id),
     })),
+    aftercare: await listAftercare(db, actor, dealId),
   };
 }
 

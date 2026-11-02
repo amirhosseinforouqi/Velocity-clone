@@ -339,3 +339,9 @@ Every slice uses synthetic `@keyway.test` data. Nothing sends email or SMS on it
   - Each deal has a Progress tab: the steps for its Application Type with a target date (days from the deal's creation), Complete with a date and Reopen. Prerequisites are enforced on the server, both ways.
   - Create Tasks turns a step's todos into follow-up tasks and its auto message into an email reminder task. Keyway never sends the auto message.
   - Tests: `tasks.test.ts`. Checked in the browser as an admin: adding a step, Create Tasks, Complete, Reopen; as an agent the page is read-only.
+- **Slice 7 done** (#19).
+  - Each deal has an After Care tab: recurring client touches with label, next date, period in months (0 means once) and max times (0 means no limit). You can turn each one off and on. Migration 0014 (`aftercare`).
+  - Due items show on My Day in an "After Care Due" list with Mark Done. Marking an item done counts the touch and moves Next Date on by the period. Due items are not created as tasks.
+  - The Maturities and Rate Expiries one-touch reports read the deal's Maturity Date and Rate Hold Expiry fields. Both are also available in the report builder.
+  - Not built: RevoDoc's Confirm Before Sending and Receivers, because Keyway never contacts the client itself.
+  - Tests: `tasks.test.ts`. Checked in the browser: added an item on a test deal, saw it on My Day, ran Mark Done (date moved on a year, "1 of 2"), turned it off and on, and ran the Maturities report.

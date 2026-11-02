@@ -16,7 +16,7 @@ import { dealTabs, fieldKey, sections, selectOptions, type Group } from "./deal-
 import { ComplianceContext, DealCompliance } from "./deal-compliance";
 import { ChecklistContext, DealConditions, type Checklist } from "./deal-conditions";
 import { DealContacts, DealContactsContext, type DealContactData } from "./deal-contacts";
-import { DealProgress, ProgressContext, type Progress } from "./deal-progress";
+import { DealAftercare, DealProgress, ProgressContext, type Progress } from "./deal-progress";
 import { DealTasks, TasksContext, type DealTaskList } from "./deal-tasks";
 import { AppShell } from "./shell";
 
@@ -151,6 +151,7 @@ function GroupView({ group, section }: { group: Group; section: string }) {
       {group.custom === "contacts" && <DealContacts />}
       {group.custom === "referrals" && <DealContacts role="Referral Source" />}
       {group.custom === "progress" && <DealProgress />}
+      {group.custom === "aftercare" && <DealAftercare />}
       {/* ponytail: the other workspace tables (notes, messages...) have no storage yet; each gets its own table when built. */}
       {group.cols && <Table cols={group.cols} rows={group.rows ?? []} />}
       {group.buttons && (

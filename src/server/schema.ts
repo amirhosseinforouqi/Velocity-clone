@@ -210,6 +210,21 @@ export const dealSteps = pgTable("deal_steps", {
   createdAt: createdAt(),
 }, (t) => [primaryKey({ columns: [t.dealId, t.stepId] })]);
 
+// After Care: a recurring client touch on a deal. Period 0 means once; Max Times 0 means no limit.
+export const aftercare = pgTable("aftercare", {
+  id: id(),
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id),
+  dealId: uuid("deal_id").notNull().references(() => deals.id),
+  label: text("label").notNull(),
+  nextDate: date("next_date").notNull(),
+  periodMonths: integer("period_months").notNull().default(12),
+  maxTimes: integer("max_times").notNull().default(0),
+  timesDone: integer("times_done").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdBy: uuid("created_by").notNull().references(() => users.id),
+  createdAt: createdAt(),
+}, (t) => [index("aftercare_deal_idx").on(t.dealId), index("aftercare_due_idx").on(t.organizationId, t.active, t.nextDate)]);
+
 // File metadata; the bytes live in storage under the document id (storage.ts).
 export const documents = pgTable("documents", {
   id: id(),

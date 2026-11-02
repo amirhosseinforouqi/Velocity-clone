@@ -4,10 +4,11 @@ import { useState, useTransition } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, CloudSun, Mail, MessageSquareText, PhoneCall, SearchCheck } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { bulkTasksAction, removeTaskAction, updateTaskAction } from "@/app/deal/actions";
+import { aftercareDoneAction, bulkTasksAction, removeTaskAction, updateTaskAction } from "@/app/deal/actions";
 import { addDays } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { dealCode } from "@/server/deal-status";
+import type { DueAftercare } from "@/server/aftercare";
 import type { TaskRow } from "@/server/tasks";
 import { AppShell } from "./shell";
 
@@ -135,7 +136,7 @@ function TaskList({ list, tasks, today, act }: { list: (typeof lists)[number]; t
   );
 }
 
-export function AppMyDay({ date, today, tasks }: { date: string; today: string; tasks: TaskRow[] }) {
+export function AppMyDay({ date, today, tasks, aftercare }: { date: string; today: string; tasks: TaskRow[]; aftercare: DueAftercare[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState("");
@@ -172,6 +173,23 @@ export function AppMyDay({ date, today, tasks }: { date: string; today: string; 
           </Link>
         </div>
         {error && <p role="alert" className="mb-3 rounded-[3px] border border-[#ebccd1] bg-[#f2dede] px-3 py-2 text-sm text-[#a94442]">{error}</p>}
+        {aftercare.length > 0 && (
+          <div className="mb-5 bg-white px-5 py-[15px] text-sm shadow-[0_0_4px_rgba(0,0,0,0.1)]">
+            <h2 className="mb-2 text-[18px] font-light text-[#666]">After Care Due</h2>
+            <ul className="divide-y divide-[#eee]">
+              {aftercare.map((a) => (
+                <li key={a.id} className="flex flex-wrap items-center gap-3 py-1.5">
+                  <Link href={`/deal/${a.dealId}/aftercare`} className="text-[#428bca] hover:underline">{dealCode(a.number)}</Link>
+                  <span>{a.label}</span>
+                  <span className={cn("text-[#999]", a.nextDate < today && "text-[#d9534f]")}>{a.nextDate}</span>
+                  <span className="text-[#999]">{a.timesDone}{a.maxTimes ? ` of ${a.maxTimes}` : ""} done</span>
+                  {a.nextDate <= today && <button onClick={() => act(() => aftercareDoneAction(a.id))} className="ml-auto text-[#428bca] hover:underline">Mark Done</button>}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-[#999]">Keyway doesn&apos;t contact the client. Reach out, then mark the item done to move it to its next date.</p>
+          </div>
+        )}
         <div className="pb-[50px]">
           {tasks.length ? (
             lists.map((l) => {
