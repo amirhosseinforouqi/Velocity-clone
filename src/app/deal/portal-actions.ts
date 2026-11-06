@@ -6,7 +6,7 @@ import { Forbidden } from "@/server/access";
 import { ValidationError } from "@/server/contacts";
 import { getDb } from "@/server/db";
 import {
-  addNote, assignDeal, cancelRequest, finishUpload, inviteApplicant, readStaffNotifications, releaseFile, remindRequest, requestDocuments, resendInvitation,
+  addNote, assignDeal, cancelRequest, createClientExperience, finishUpload, inviteApplicant, readStaffNotifications, releaseFile, remindRequest, requestDocuments, resendInvitation,
   revokeInvitation, reviewRequest, setPortalAccess, setStage, staffAddVersion, staffDeal, staffMarkRead, staffReply, startConversation, startUpload, topBarPortal,
 } from "@/server/portal";
 import { purgeDeal } from "@/server/portal-admin";
@@ -28,6 +28,7 @@ async function run<T>(fn: (c: Ctx) => Promise<T>, refresh = true): Promise<Resul
 
 // An invitation's link only comes back when the email wasn't sent, so staff can share it another way.
 export const inviteAction = async (dealId: string, contactId: string) => run(({ db, actor }) => inviteApplicant(db, actor, dealId, contactId));
+export const clientExperienceAction = async (input: Record<string, unknown>) => run(({ db, actor }) => createClientExperience(db, actor, input));
 export const resendInviteAction = async (id: string) => run(({ db, actor }) => resendInvitation(db, actor, id));
 export const revokeInviteAction = async (id: string) => run(({ db, actor }) => revokeInvitation(db, actor, id));
 export const portalAccessAction = async (dealId: string, contactId: string, on: boolean) => run(({ db, actor }) => setPortalAccess(db, actor, dealId, contactId, on));

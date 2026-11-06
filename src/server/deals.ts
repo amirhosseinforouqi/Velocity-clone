@@ -117,8 +117,10 @@ export function newDealValues(input: Record<string, unknown>) {
 }
 
 // A lead or new application for a contact the actor can see. The actor becomes the agent.
-export async function createDeal(db: Db, actor: Actor, contactId: string, input: Record<string, unknown>) {
-  const { values, fields } = newDealValues(input);
+// extraFields: workspace field values set at creation (trusted callers only), so smart rules see them.
+export async function createDeal(db: Db, actor: Actor, contactId: string, input: Record<string, unknown>, extraFields: Record<string, string> = {}) {
+  const { values, fields: base } = newDealValues(input);
+  const fields = { ...base, ...extraFields };
   const status = values.status;
   if (!(await getContact(db, actor, contactId))) throw new Forbidden("Contact not found");
   return db.transaction(async (tx) => {

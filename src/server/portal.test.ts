@@ -10,12 +10,14 @@ import { eq, sql } from "drizzle-orm";
 import { Forbidden, type Actor } from "./access.ts";
 import { saveUser } from "./admin.ts";
 import { createContact, ValidationError } from "./contacts.ts";
+import { fieldKeys } from "../components/platform/deal-sections.ts";
 import { createDeal } from "./deals.ts";
+import { defaultDocuments } from "./doc-rules.ts";
 import { openDb, type Db } from "./db.ts";
 import { applyWebhookEvent, verifyWebhook } from "./email.ts";
 import { base32, totp } from "./mfa.ts";
 import {
-  addNote, finishUpload, inviteApplicant, portalDashboard, revokeInvitation, portalWorkspace, requestDocuments, reviewRequest, setStage, staffFile, staffReply, startConversation, startUpload,
+  addNote, createClientExperience, finishUpload, inviteApplicant, portalDashboard, revokeInvitation, portalWorkspace, requestDocuments, reviewRequest, setStage, staffFile, staffReply, startConversation, startUpload,
   topBarPortal,
 } from "./portal.ts";
 import { runRetention } from "./portal-admin.ts";
@@ -23,7 +25,7 @@ import {
   clientAddVersion, clientDeal, clientDeals, clientFile, clientFinishUpload, clientMarkRead, clientNotifications, clientReply, clientStartConversation,
   clientStartUpload, getClientAccount, onTempPassword, setOwnPassword, verifyClientLogin, type ClientAccount,
 } from "./portal-client.ts";
-import { clientInvitations, clients, dealBorrowers, deals, emailDeliveries, files, organizations, users } from "./schema.ts";
+import { clientInvitations, clients, dealBorrowers, deals, documentRequests, emailDeliveries, files, organizations, users } from "./schema.ts";
 import { seedIfEmpty } from "./seed.ts";
 import { putFile } from "./storage.ts";
 import { enableMfa, startMfa, verifyLogin } from "./users.ts";
@@ -313,4 +315,33 @@ test("retention purges closed deals' files and messages and closes portal access
   assert.equal(conv.messages[0].purged, true);
   assert.equal(conv.messages[0].body, "");
   await db.update(organizations).set({ retentionDays: null }).where(eq(organizations.id, deal.organizationId));
+});
+
+test("client experience: rules pick the documents, then one step creates the deal, requests and portal invite", async () => {
+  assert.equal(defaultDocuments("Purchase", "Employee").length, 8);
+  assert.equal(defaultDocuments("Refinance", "Self-Employed").length, 12); // 2 + 8 + 2, T1 / NOA once
+  assert.ok(defaultDocuments("Business Loan", "Employee").some((d) => d.name === "Articles of Incorporation"));
+  for (const k of ["mortgageRequest/Mortgage Breakdown/Application Purpose", "mortgageRequest/Mortgage Breakdown/Program", "borrowers/Employment/Self Employed", "borrowers/Residency/First Time Buyer"])
+    assert.ok(fieldKeys.has(k), k);
+
+  const documents = [...defaultDocuments("Purchase", "Employee").slice(1), { name: "Gift Letter", category: "Banking & Assets", description: "" }];
+  const borrowers = [{ firstName: "Test", lastName: "Wizard", email: "wizard.primary@example.test" }, { firstName: "Test", lastName: "Wizard Co", email: "wizard.co@example.test" }];
+  await assert.rejects(createClientExperience(db, as.agent, { service: "Lease", employment: "Employee", documents, borrowers }), ValidationError);
+  await assert.rejects(createClientExperience(db, as.agent, { service: "Purchase", employment: "Employee", documents, borrowers: [{ firstName: "Test", lastName: "No Email" }] }), /email/);
+
+  const r = await createClientExperience(db, as.agent, { service: "Purchase", employment: "Self-Employed", firstTimeBuyer: true, documents, borrowers });
+  const [deal] = await db.select().from(deals).where(eq(deals.id, r.dealId));
+  assert.equal(deal.status, "new_deal");
+  assert.equal(deal.fields["mortgageRequest/Mortgage Breakdown/Application Purpose"], "Purchase");
+  assert.equal(deal.fields["borrowers/Employment/Self Employed"], "Yes");
+  assert.equal(deal.fields["borrowers/Residency/First Time Buyer"], "Yes");
+  assert.equal((await db.select().from(dealBorrowers).where(eq(dealBorrowers.dealId, r.dealId))).length, 2);
+  const reqs = await db.select().from(documentRequests).where(eq(documentRequests.dealId, r.dealId));
+  assert.deepEqual(reqs.map((x) => x.name).sort(), documents.map((d) => d.name).sort());
+  assert.ok(reqs.every((x) => x.applicantContactId === null));
+  // No email provider in tests: the welcome email is recorded as not sent and the sign-in comes back for staff to pass on.
+  assert.equal(r.invite.status, "not_configured");
+  assert.equal(r.invite.login!.username, "wizard.primary@example.test");
+  const account = await verifyClientLogin(db, r.invite.login!.username, r.invite.login!.password!);
+  assert.ok(account);
 });

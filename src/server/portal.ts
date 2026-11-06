@@ -8,9 +8,11 @@ import { dealScope, Forbidden, type Actor } from "./access.ts";
 import { getOrganization, isAdmin, text } from "./admin.ts";
 import { audit } from "./audit.ts";
 import { MAX_UPLOAD, sniffType } from "./conditions.ts";
-import { ValidationError } from "./contacts.ts";
+import { createContact, ValidationError } from "./contacts.ts";
 import type { Db, Tx } from "./db.ts";
 import { dealCode } from "./deal-status.ts";
+import { createDeal } from "./deals.ts";
+import { employments, services } from "./doc-rules.ts";
 import { emailConfigured, sendEmail, type TemplateKind } from "./email.ts";
 import { hashPassword } from "./password.ts";
 import {
@@ -295,6 +297,40 @@ export async function requestDocuments(db: Db, actor: Actor, dealId: string, inp
   });
   await notifyClients(db, deal.id, applicantContactId, { kind: "document_request", title: `${rows.length} document${rows.length > 1 ? "s" : ""} requested`, email: "document_request" });
   return rows;
+}
+
+// ---- Client Experience: one step from "new client" to an open portal. Creates the applicants' contacts and the deal,
+// requests the chosen documents (shared by all applicants), then invites the primary applicant: the welcome email
+// carries the portal sign-in, and the requests are waiting when they sign in, so no separate request email goes out.
+// ponytail: not one transaction (createContact / createDeal / inviteApplicant each commit); a failure part-way leaves
+// the contacts or deal behind for staff to finish from the deal's Client Portal tab.
+export async function createClientExperience(db: Db, actor: Actor, input: Record<string, unknown>) {
+  const service = services.find((s) => s === input.service);
+  const employment = employments.find((e) => e === input.employment);
+  if (!service) throw new ValidationError("Choose a service");
+  if (!employment) throw new ValidationError("Choose the employment status");
+  const docs = Array.isArray(input.documents) ? (input.documents as Record<string, unknown>[]) : [];
+  if (!docs.length) throw new ValidationError("Choose at least one document");
+  if (docs.length > 60) throw new ValidationError("Choose up to 60 documents");
+  const items = docs.map((d) => ({ name: text(d?.name, "Document name", 120), category: text(d?.category, "Category", 60, false) || "General", description: text(d?.description, "Description", 1000, false) }));
+  const people = Array.isArray(input.borrowers) ? (input.borrowers as Record<string, unknown>[]) : [];
+  if (!people.length) throw new ValidationError("Add the client");
+  if (people.length > 4) throw new ValidationError("Add up to 4 applicants");
+  for (const p of people) if (!EMAIL.test(String(p?.email ?? "").trim())) throw new ValidationError("Every applicant needs a valid email address");
+  const ids: string[] = [];
+  for (const p of people) ids.push((await createContact(db, actor, { firstName: p.firstName, lastName: p.lastName, email: String(p.email).trim() })).id);
+  const fields: Record<string, string> = service === "Business Loan"
+    ? { "mortgageRequest/Mortgage Breakdown/Program": "Business Loan" }
+    : { "mortgageRequest/Mortgage Breakdown/Application Purpose": service };
+  if (employment === "Self-Employed") fields["borrowers/Employment/Self Employed"] = "Yes";
+  if (input.firstTimeBuyer === true) fields["borrowers/Residency/First Time Buyer"] = "Yes";
+  const deal = await createDeal(db, actor, ids[0], { status: "new_deal" }, fields);
+  await db.transaction(async (tx) => {
+    if (ids.length > 1) await tx.insert(dealBorrowers).values(ids.slice(1).map((contactId, i) => ({ dealId: deal.id, contactId, position: i + 1 })));
+    await tx.insert(documentRequests).values(items.map((i) => ({ dealId: deal.id, applicantContactId: null, ...i, createdBy: actor.id })));
+    await portalAudit(tx, actor, deal.id, "request", { count: items.length, applicantContactId: null, service, employment });
+  });
+  return { dealId: deal.id, invite: await inviteApplicant(db, actor, deal.id, ids[0]) };
 }
 
 async function staffRequest(db: Db, actor: Actor, requestId: string) {
