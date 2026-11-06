@@ -95,10 +95,18 @@ export async function clientDeals(db: Db, account: ClientAccount) {
     .where(and(inArray(dealBorrowers.contactId, ids), eq(dealBorrowers.portalAccess, true), isNull(deals.deletedAt))).orderBy(desc(deals.createdAt));
   return Promise.all(rows.map(async (r) => {
     const client = account.clients.find((c) => c.contactId === r.contactId)!;
-    const [{ n }] = await db.select({ n: count() }).from(documentRequests)
-      .where(and(eq(documentRequests.dealId, r.deal.id), isNull(documentRequests.deletedAt), inArray(documentRequests.status, ["requested", "replacement_required"]), mine(documentRequests.applicantContactId, r.contactId)));
+    const docs = await db.select({ s: documentRequests.status }).from(documentRequests)
+      .where(and(eq(documentRequests.dealId, r.deal.id), isNull(documentRequests.deletedAt), mine(documentRequests.applicantContactId, r.contactId)));
+    const stages = await db.select({ id: progressStages.id }).from(progressStages)
+      .where(and(eq(progressStages.organizationId, r.deal.organizationId), eq(progressStages.active, true))).orderBy(asc(progressStages.position));
     const convs = await conversationsFor(db, { clientId: client.id }, r.deal.id, r.contactId);
-    return { id: r.deal.id, code: dealCode(r.deal.number), firm: r.firm, purpose: r.deal.purpose, stage: r.stage, outstanding: n, unread: convs.reduce((a, c) => a + c.unread, 0) };
+    return {
+      id: r.deal.id, code: dealCode(r.deal.number), firm: r.firm, purpose: r.deal.purpose, stage: r.stage,
+      step: stages.findIndex((s) => s.id === r.deal.clientStageId) + 1, steps: stages.length,
+      outstanding: docs.filter((d) => d.s === "requested" || d.s === "replacement_required").length,
+      approved: docs.filter((d) => d.s === "accepted").length, docs: docs.length,
+      unread: convs.reduce((a, c) => a + c.unread, 0),
+    };
   }));
 }
 
