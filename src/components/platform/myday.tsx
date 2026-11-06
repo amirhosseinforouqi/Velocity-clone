@@ -113,7 +113,7 @@ function TaskList({ list, tasks, today, act }: { list: (typeof lists)[number]; t
                             </button>
                           ))}
                         </div>
-                        <details className="relative">
+                        <details data-dropdown className="relative">
                           <summary className="flex cursor-pointer list-none items-center gap-1 rounded-[3px] border border-[#ccc] bg-white px-2 py-1 [&::-webkit-details-marker]:hidden">
                             Actions <ChevronDown className="size-3" />
                           </summary>

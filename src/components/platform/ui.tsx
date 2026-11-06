@@ -36,7 +36,7 @@ export function PageHeader({ icon: Icon, title, crumbs, children }: { icon: Luci
 
 export function ToggleColumns({ shown, setShown, fixed, options }: { shown: string[]; setShown: (s: string[]) => void; fixed: string[]; options: readonly (readonly [string, string])[] }) {
   return (
-    <details className="relative">
+    <details data-dropdown className="relative">
       <summary className={cn(blueBtn, "flex h-[34px] cursor-pointer list-none items-center gap-2 px-3 text-[12.6px] [&::-webkit-details-marker]:hidden")}>
         Toggle Columns <ChevronDown className="size-3.5" />
       </summary>

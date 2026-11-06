@@ -6,7 +6,7 @@ import { Forbidden, type Actor } from "./access.ts";
 import { fieldKey, sections } from "../components/platform/deal-sections.ts";
 import { archiveContact, createContact, getContact, listContacts, setCasl, updateContact, ValidationError } from "./contacts.ts";
 import { allowedMoves, boardStatuses } from "./deal-status.ts";
-import { addDealContact, createDeal, dealActivity, dealCode, dealHistory, deleteDeal, findDealByCode, getDeal, listDealContacts, listDeals, listDeletedDeals, moveDeal, nextMilestone, removeDealContact, restoreDeal, saveDeal } from "./deals.ts";
+import { addDealContact, assignDeal, createDeal, duplicateDeal, dealActivity, dealCode, dealHistory, deleteDeal, findDealByCode, getDeal, listDealContacts, listDeals, listDeletedDeals, moveDeal, nextMilestone, removeDealContact, restoreDeal, saveDeal } from "./deals.ts";
 import { openDb, type Db } from "./db.ts";
 import { hashPassword, verifyPassword } from "./password.ts";
 import { auditLog, contactConsents, organizations, users } from "./schema.ts";
@@ -278,4 +278,44 @@ test("deleting a deal hides it but keeps it; only admins in scope can see and re
   await assert.rejects(restoreDeal(db, as.admin, d.id), Forbidden, "a live deal can't be restored");
   const actions = (await db.select().from(auditLog).where(eq(auditLog.entityId, d.id))).map((r) => r.action);
   assert.ok(actions.includes("delete") && actions.includes("restore"));
+});
+
+test("reassign file is admin-only and moves the deal with its agent; anyone in scope can set the assignee", async () => {
+  const d = await newDeal(as.agent);
+  await assert.rejects(assignDeal(db, as.agent, d.id, { agentId: as.agent2.id }), /Only admins/);
+  await assert.rejects(assignDeal(db, as.assistant, d.id, { agentId: as.agent2.id }), /Only admins/);
+  await assert.rejects(assignDeal(db, as["office.admin"], d.id, { agentId: as["ottawa.agent"].id }), /from the list/, "office admins pick from their own office");
+  await assert.rejects(assignDeal(db, as.agent, d.id, { assigneeId: "not-a-user" }), /from the list/);
+  await assignDeal(db, as.assistant, d.id, { assigneeId: as.assistant.id }); // Assign to Me
+  assert.equal((await getDeal(db, as.agent, d.id))?.assignee, "Casey Assist");
+  await assignDeal(db, as["office.admin"], d.id, { agentId: as.agent2.id });
+  assert.equal(await getDeal(db, as.agent, d.id), null, "the old agent loses the file");
+  assert.equal((await getDeal(db, as.agent2, d.id))?.agent, "Taylor Brooks");
+  await assignDeal(db, as.admin, d.id, { agentId: as["ottawa.agent"].id, assigneeId: null });
+  const moved = await getDeal(db, as["ottawa.agent"], d.id);
+  assert.equal(moved?.officeId, as["ottawa.agent"].officeId, "the deal follows its new agent's office");
+  assert.equal(moved?.assigneeId, null);
+  assert.equal(await getDeal(db, as["office.admin"], d.id), null);
+  const log = await dealActivity(db, as.admin, d.id);
+  assert.ok(log.some((r) => r.action === "assign" && r.detail === "Agent Riley Chen, assigned nobody"));
+});
+
+test("duplicate copies borrowers, contacts and fields into a fresh deal the same people can see", async () => {
+  const d = await newDeal(as.agent);
+  const lawyer = await createContact(db, as.agent, { firstName: "Test", lastName: "Lawyer", role: "Lawyer" });
+  await addDealContact(db, as.agent, d.id, lawyer.id, "Lawyer");
+  await saveDeal(db, as.agent, d.id, { "mortgageRequest/Mortgage Breakdown/1st Mortgage Total": "250000", closingDate: "2030-01-15" });
+  await moveDeal(db, as.agent, d.id, "submitted");
+  await assignDeal(db, as.agent, d.id, { assigneeId: as.agent2.id });
+  await assert.rejects(duplicateDeal(db, as["ottawa.agent"], d.id), Forbidden);
+  const copy = await duplicateDeal(db, as.agent2, d.id);
+  const got = await getDeal(db, as.agent, copy.id);
+  assert.ok(got && got.number !== d.number);
+  assert.equal(got.status, "new_deal", "a submitted deal restarts as a new deal");
+  assert.equal(got.amount, 250000);
+  assert.equal(got.closingDate, null, "milestone dates start fresh");
+  assert.equal(got.assigneeId, as.agent2.id);
+  assert.deepEqual(got.borrowers.map((b) => b.id), (await getDeal(db, as.agent, d.id))!.borrowers.map((b) => b.id));
+  assert.deepEqual((await listDealContacts(db, as.agent, copy.id)).map((c) => [c.contactId, c.role]), [[lawyer.id, "Lawyer"]]);
+  assert.ok((await dealActivity(db, as.agent, d.id)).some((r) => r.action === "duplicate" && r.detail === dealCode(copy.number).replace("KW-", "Copied to KW-")));
 });

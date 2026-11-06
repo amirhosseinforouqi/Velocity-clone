@@ -354,6 +354,19 @@ function Sidebar({ toggled, onToggle, deal }: { toggled: boolean; onToggle: () =
 
 export function AppShell({ children, deal }: { children: ReactNode; deal?: OpenDeal }) {
   const [toggled, setToggled] = useState(false);
+  // Dropdowns are native <details data-dropdown>; close any open one on a click outside it, or on Escape.
+  useEffect(() => {
+    const close = (e: Event) => {
+      for (const d of document.querySelectorAll<HTMLDetailsElement>("details[data-dropdown][open]"))
+        if (e instanceof KeyboardEvent ? e.key === "Escape" : !d.contains(e.target as Node)) d.open = false;
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, []);
   return (
     <div className="min-h-screen bg-[#f1f1f1] font-sans text-sm text-[#333]">
       <TopBar />

@@ -121,7 +121,7 @@ export function AppImporter() {
   return (
     <AppShell>
       <PageHeader icon={Upload} title="Importer" crumbs={[["Import Your Data"]]}>
-        <details className="relative">
+        <details data-dropdown className="relative">
           <summary className={cn(greyBtn, "flex h-[30px] cursor-pointer list-none items-center px-3 text-[12.6px] [&::-webkit-details-marker]:hidden")}>Import History ▾</summary>
           <div className="absolute left-0 z-20 mt-1 w-[min(560px,90vw)] rounded-[3px] border border-[#ddd] bg-white p-2 shadow-lg">
             <Grid min={480} head={["", "Date", "Data Type", "Data Source", ""]} rows={history.map((h) => [

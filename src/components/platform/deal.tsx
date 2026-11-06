@@ -5,7 +5,7 @@ import { CheckCircle, ChevronDown, FileText, Folder } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
-import { deleteDealAction, moveDealAction, saveDealAction } from "@/app/deal/actions";
+import { assignDealAction, deleteDealAction, duplicateDealAction, moveDealAction, saveDealAction } from "@/app/deal/actions";
 import { allowedMoves, dealCode, isReinstate, statusLabel, type DealStatus } from "@/server/deal-status";
 import type { dealActivity, dealHistory, getDeal } from "@/server/deals";
 import { contractPayment, dealMetrics } from "@/server/metrics";
@@ -28,11 +28,10 @@ type SaveState = { error?: string; ok?: string; problems?: Problem[] };
 const input = "h-[30px] w-full rounded-[3px] border border-[#ccc] bg-white px-2 text-[12.6px] text-[#555] outline-none focus:border-[#66afe9] disabled:bg-[#eee]";
 const blueBtn = "rounded-[3px] border border-[#3d81be] bg-gradient-to-b from-[#428bcd] to-[#3d81be] px-[13px] py-1.5 text-[12.6px] text-white disabled:opacity-60";
 
-// Workspace actions that have no backend yet; shown disabled so nothing pretends to work.
-const notBuilt = [
-  "Duplicate", "Reassign file", "Assign to Me", "Remove", "Submit to Lender", "Update Lender",
-  "Queue for External CRM", "Respond - Co-Broker", "Print Application (En)", "Print Application (Fr)",
-];
+// Workspace actions that need an outside service (lender portals, an external CRM, the co-broker's system), or whose
+// meaning isn't settled yet (Remove); shown disabled so nothing pretends to work.
+const notBuilt = ["Remove", "Submit to Lender", "Update Lender", "Queue for External CRM", "Respond - Co-Broker"];
+export type Team = { staff: { id: string; name: string }[]; me: string; canReassign: boolean };
 
 // Field values by storage key. `locked` keys mirror the contact or a column and are edited there, not here.
 const Values = createContext<{ values: Record<string, string>; locked: Set<string>; lenders: LenderChoice[] }>({ values: {}, locked: new Set(), lenders: [] });
@@ -200,7 +199,7 @@ function focusField(key: string) {
 const moveLabel = (from: DealStatus, to: DealStatus) =>
   to === "parked" ? "Park" : to === "cancelled" ? "Cancel" : isReinstate(from) ? `Reinstate to ${statusLabel[to]}` : `Move to ${statusLabel[to]}`;
 
-function Overview({ deal, view, setView, message }: { deal: Deal; view: string; setView: (v: "modern" | "classic") => void; message?: SaveState }) {
+function Overview({ deal, team, view, setView, message }: { deal: Deal; team: Team; view: string; setView: (v: "modern" | "classic") => void; message?: SaveState }) {
   const [moved, setMoved] = useState<{ error?: string }>({});
   const [pending, start] = useTransition();
   const menu = useRef<HTMLDetailsElement>(null);
@@ -219,6 +218,24 @@ function Overview({ deal, view, setView, message }: { deal: Deal; view: string; 
     if ((to === "parked" || to === "cancelled") && !confirm(`${moveLabel(deal.status, to)} deal ${dealCode(deal.number)}?`)) return;
     start(async () => setMoved(await moveDealAction(deal.id, to)));
   };
+  const duplicate = () => {
+    menu.current?.removeAttribute("open");
+    if (!confirm(`Duplicate deal ${dealCode(deal.number)}? The copy keeps the borrowers, contacts and application fields; dates, conditions, documents and tasks start fresh.`)) return;
+    start(async () => {
+      const r = await duplicateDealAction(deal.id);
+      if (r.error) setMoved(r);
+      else router.push(`/deal/${r.id}`);
+    });
+  };
+  const assign = (input: { agentId?: string; assigneeId?: string | null }, ask?: string) => {
+    menu.current?.removeAttribute("open");
+    if (ask && !confirm(ask)) return;
+    start(async () => setMoved(await assignDealAction(deal.id, input)));
+  };
+  const nameOf = (id: string) => team.staff.find((u) => u.id === id)?.name ?? "";
+  // The current agent / assignee stay listed even when they're outside the pickable staff (deactivated, other office).
+  const withCurrent = (id: string | null, name: string | null) => (id && name && !team.staff.some((u) => u.id === id) ? [{ id, name }, ...team.staff] : team.staff);
+  const item = "block w-full px-4 py-1.5 text-left hover:bg-[#f5f5f5] disabled:text-[#aaa] disabled:hover:bg-transparent";
   const note = moved.error ?? message?.error;
   const dateInput = "rounded-[3px] bg-white px-1 text-[12.6px] text-[#555]";
   // From the saved values, so the ratios change after Save.
@@ -245,7 +262,7 @@ function Overview({ deal, view, setView, message }: { deal: Deal; view: string; 
           ))}
         </div>
         <button type="submit" className={cn(blueBtn, "ml-auto")}>Save</button>
-        <details ref={menu} className="relative">
+        <details ref={menu} data-dropdown className="relative">
           <summary className={cn(blueBtn, "flex cursor-pointer list-none items-center gap-1 [&::-webkit-details-marker]:hidden")}>
             {pending ? "Working..." : "Actions"} <ChevronDown className="size-3.5" />
           </summary>
@@ -257,6 +274,18 @@ function Overview({ deal, view, setView, message }: { deal: Deal; view: string; 
               <button type="submit" name="intent" value="validate" onClick={() => menu.current?.removeAttribute("open")} className="w-full px-4 py-1.5 text-left hover:bg-[#f5f5f5]">Save + Validate</button>
             </li>
             <li><button type="button" onClick={remove} className="w-full px-4 py-1.5 text-left text-[#a94442] hover:bg-[#f5f5f5]">Delete Deal</button></li>
+            <li><button type="button" onClick={duplicate} className={item}>Duplicate</button></li>
+            <li>
+              <button type="button" disabled={!team.canReassign} title={team.canReassign ? undefined : "Only admins can reassign a file"} className={item}
+                onClick={() => { menu.current?.removeAttribute("open"); document.getElementById("deal-agent")?.focus(); }}>Reassign file</button>
+            </li>
+            <li>
+              <button type="button" disabled={deal.assigneeId === team.me || !team.staff.some((u) => u.id === team.me)} className={item}
+                onClick={() => assign({ assigneeId: team.me })}>Assign to Me</button>
+            </li>
+            {(["en", "fr"] as const).map((l) => (
+              <li key={l}><a href={`/deal/${deal.id}/print?lang=${l}`} target="_blank" rel="noopener" onClick={() => menu.current?.removeAttribute("open")} className={item}>Print Application ({l === "en" ? "En" : "Fr"})</a></li>
+            ))}
             {notBuilt.map((a) => (
               <li key={a}><button type="button" disabled title="Not built yet" className="w-full px-4 py-1.5 text-left text-[#aaa]">{a}</button></li>
             ))}
@@ -277,18 +306,26 @@ function Overview({ deal, view, setView, message }: { deal: Deal; view: string; 
             ))}
           </ul>
         </li>
-        {/* ponytail: reassigning is a later step; the agent is whoever created the deal. */}
-        {["Agent", "Assigned"].map((l) => (
-          <li key={l} className="px-[15px] py-[5px]">
-            <span className="block text-xs text-[#888]">{l}</span>
-            <select disabled value={deal.agent} className="text-[12.6px]"><option>{deal.agent}</option></select>
-          </li>
-        ))}
+        {/* Not named, so the deal form's Save doesn't send them; each change saves on its own. */}
+        <li className="px-[15px] py-[5px]">
+          <label htmlFor="deal-agent" className="block text-xs text-[#888]">Agent</label>
+          <select id="deal-agent" value={deal.agentId} disabled={!team.canReassign || pending} className="text-[12.6px]"
+            onChange={(e) => assign({ agentId: e.target.value }, `Reassign ${dealCode(deal.number)} to ${nameOf(e.target.value)}? They become the deal's agent.`)}>
+            {withCurrent(deal.agentId, deal.agent).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
+        </li>
+        <li className="px-[15px] py-[5px]">
+          <label htmlFor="deal-assignee" className="block text-xs text-[#888]">Assigned</label>
+          <select id="deal-assignee" value={deal.assigneeId ?? ""} disabled={pending} className="text-[12.6px]" onChange={(e) => assign({ assigneeId: e.target.value || null })}>
+            <option value="">Nobody</option>
+            {withCurrent(deal.assigneeId, deal.assignee).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
+        </li>
       </ul>
       <div className="mt-1 flex flex-wrap">
         <Metric label="GDS"><span className={over(m.gds, LIMITS.gds)}>{pct(m.gds)}</span></Metric>
         <Metric label="TDS">
-          <details className="relative">
+          <details data-dropdown className="relative">
             <summary className={cn("flex cursor-pointer list-none items-center gap-1 [&::-webkit-details-marker]:hidden", over(m.tds, LIMITS.tds))}>
               {pct(m.tds)} <ChevronDown className="size-3" />
             </summary>
@@ -328,7 +365,7 @@ function Overview({ deal, view, setView, message }: { deal: Deal; view: string; 
   );
 }
 
-export function AppDeal({ deal, history, checklist, compliance, tasks, contacts, progress, lenders, activity, tab }: { deal: Deal; history: History; checklist: Checklist; compliance: Compliance; tasks: DealTaskList; contacts: DealContactData; progress: Progress; lenders: LenderChoice[]; activity: Activity; tab?: string }) {
+export function AppDeal({ deal, team, history, checklist, compliance, tasks, contacts, progress, lenders, activity, tab }: { deal: Deal; team: Team; history: History; checklist: Checklist; compliance: Compliance; tasks: DealTaskList; contacts: DealContactData; progress: Progress; lenders: LenderChoice[]; activity: Activity; tab?: string }) {
   const [view, setView] = useState<"modern" | "classic">("modern");
   const [state, save, saving] = useActionState(async (prev: SaveState | null, form: FormData): Promise<SaveState> => {
     const r = await saveDealAction(deal.id, prev, form);
@@ -369,7 +406,7 @@ export function AppDeal({ deal, history, checklist, compliance, tasks, contacts,
             startTransition(() => save(data));
           }}
         >
-          <Overview deal={deal} view={view} setView={setView} message={state ?? undefined} />
+          <Overview deal={deal} team={team} view={view} setView={setView} message={state ?? undefined} />
           <div className="mx-[25px]">
             {shown.map((s) => <SectionBox key={s.id} id={s.id} title={s.title} groups={s.groups} open={open} />)}
             {current?.slug === "activity" && (

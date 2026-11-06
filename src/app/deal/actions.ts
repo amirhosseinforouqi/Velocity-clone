@@ -9,7 +9,7 @@ import { addCondition, removeDocument, setConditionStatus, uploadDocument } from
 import { createContact, setCasl, ValidationError } from "@/server/contacts";
 import { getDb } from "@/server/db";
 import type { DealStatus } from "@/server/deal-status";
-import { addDealContact, createDeal, deleteDeal, moveDeal, newDealValues, removeDealContact, restoreDeal, saveDeal } from "@/server/deals";
+import { addDealContact, assignDeal, createDeal, deleteDeal, duplicateDeal, moveDeal, newDealValues, removeDealContact, restoreDeal, saveDeal } from "@/server/deals";
 import { completeStep, createStepTasks, reopenStep } from "@/server/progress";
 import { deleteSavedReport, saveReport } from "@/server/reports";
 import { bulkTasks, createTask, dealReminders, myDay, removeTask, today, updateTask } from "@/server/tasks";
@@ -65,6 +65,14 @@ export async function saveDealAction(id: string, _prev: unknown, form: FormData)
 
 export async function moveDealAction(id: string, to: DealStatus) {
   return run(async () => void (await moveDeal(await getDb(), await requireActor(), id, to)));
+}
+
+export async function duplicateDealAction(id: string) {
+  return run(async () => (await duplicateDeal(await getDb(), await requireActor(), id)).id);
+}
+
+export async function assignDealAction(id: string, input: { agentId?: string; assigneeId?: string | null }) {
+  return run(async () => void (await assignDeal(await getDb(), await requireActor(), id, input)));
 }
 
 export async function deleteDealAction(id: string) {

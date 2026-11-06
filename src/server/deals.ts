@@ -79,11 +79,12 @@ export async function getDeal(db: Db, actor: Actor, id: string) {
   const [row] = await db.select().from(deals).where(and(eq(deals.id, id), dealScope(actor)));
   if (!row) return null;
   const [agent] = await db.select({ name: users.name }).from(users).where(eq(users.id, row.agentId));
+  const [assignee] = row.assigneeId ? await db.select({ name: users.name }).from(users).where(eq(users.id, row.assigneeId)) : [];
   const borrowers = await db
     .select({ id: contacts.id, firstName: contacts.firstName, lastName: contacts.lastName, email: contacts.email, homePhone: contacts.homePhone, cellPhone: contacts.cellPhone, workPhone: contacts.workPhone })
     .from(dealBorrowers).innerJoin(contacts, eq(contacts.id, dealBorrowers.contactId))
     .where(eq(dealBorrowers.dealId, id)).orderBy(asc(dealBorrowers.position));
-  return { ...row, agent: agent.name, borrowers };
+  return { ...row, agent: agent.name, assignee: assignee?.name ?? null, borrowers };
 }
 
 export async function findDealByCode(db: Db, actor: Actor, code: string) {
@@ -125,6 +126,60 @@ export async function createDeal(db: Db, actor: Actor, contactId: string, input:
     await tx.insert(dealBorrowers).values({ dealId: row.id, contactId, position: 0 });
     await tx.insert(dealStatusHistory).values({ dealId: row.id, from: null, to: status, actorId: actor.id });
     await audit(tx, actor, "deal", row.id, "create", null, row);
+    await applySmartRules(tx, actor, row);
+    return row;
+  });
+}
+
+// Active staff a deal can be given to: the whole organization for org admins, otherwise the deal's office.
+export function dealStaff(db: Db, actor: Actor, deal: { organizationId: string; officeId: string }) {
+  return db.select({ id: users.id, name: users.name, officeId: users.officeId }).from(users)
+    .where(and(eq(users.organizationId, deal.organizationId), isNull(users.deactivatedAt), actor.role === "org_admin" ? undefined : eq(users.officeId, deal.officeId)))
+    .orderBy(asc(users.name));
+}
+
+// Reassign file (admins only: changes the agent, and the deal follows the agent's office) and Assigned / Assign to Me
+// (anyone who can see the deal). assigneeId null or "" clears the assignee.
+export async function assignDeal(db: Db, actor: Actor, id: string, input: { agentId?: unknown; assigneeId?: unknown }) {
+  const before = await mustGet(db, actor, id);
+  if (input.agentId !== undefined && actor.role !== "org_admin" && actor.role !== "office_admin") throw new Forbidden("Only admins can reassign a file");
+  const staff = new Map((await dealStaff(db, actor, before)).map((u) => [u.id, u]));
+  const pick = (v: unknown) => {
+    const u = typeof v === "string" ? staff.get(v) : undefined;
+    if (!u) throw new ValidationError("Choose someone from the list");
+    return u;
+  };
+  const set: Partial<typeof deals.$inferInsert> = {};
+  if (input.agentId !== undefined) {
+    const u = pick(input.agentId);
+    set.agentId = u.id;
+    set.officeId = u.officeId;
+  }
+  if (input.assigneeId !== undefined) set.assigneeId = input.assigneeId === null || input.assigneeId === "" ? null : pick(input.assigneeId).id;
+  const name = (uid: string | null | undefined) => (uid ? staff.get(uid)?.name ?? null : null);
+  await db.transaction(async (tx) => {
+    await tx.update(deals).set({ ...set, updatedAt: new Date() }).where(eq(deals.id, id));
+    await audit(tx, actor, "deal", id, "assign", { agent: before.agent, assignee: before.assignee }, { agent: name(set.agentId) ?? before.agent, assignee: set.assigneeId === undefined ? before.assignee : name(set.assigneeId) });
+  });
+}
+
+// A copy of the application: same agent, assignee, borrowers, deal contacts and workspace fields. Milestone dates,
+// conditions, documents, tasks, compliance and portal access start fresh. A lead or pre-approval stays one; anything
+// further along restarts as a new deal.
+export async function duplicateDeal(db: Db, actor: Actor, id: string) {
+  const src = await mustGet(db, actor, id);
+  const people = await listDealContacts(db, actor, id);
+  const status: DealStatus = newStatuses.includes(src.status) ? src.status : "new_deal";
+  return db.transaction(async (tx) => {
+    const [row] = await tx.insert(deals).values({
+      organizationId: src.organizationId, officeId: src.officeId, agentId: src.agentId, assigneeId: src.assigneeId,
+      status, purpose: src.purpose, amount: src.amount, fields: src.fields,
+    }).returning();
+    if (src.borrowers.length) await tx.insert(dealBorrowers).values(src.borrowers.map((b, position) => ({ dealId: row.id, contactId: b.id, position })));
+    if (people.length) await tx.insert(dealContacts).values(people.map((p) => ({ dealId: row.id, contactId: p.contactId, role: p.role, createdBy: actor.id })));
+    await tx.insert(dealStatusHistory).values({ dealId: row.id, from: null, to: status, actorId: actor.id });
+    await audit(tx, actor, "deal", row.id, "create", null, { ...row, duplicatedFrom: src.number });
+    await audit(tx, actor, "deal", id, "duplicate", null, { number: row.number });
     await applySmartRules(tx, actor, row);
     return row;
   });
@@ -237,6 +292,8 @@ export async function dealActivity(db: Db, actor: Actor, id: string) {
 function activityDetail(action: string, before: unknown, after: unknown) {
   const b = (before ?? {}) as Record<string, unknown>;
   const a = (after ?? {}) as Record<string, unknown>;
+  if (action === "assign") return `Agent ${a.agent ?? "—"}, assigned ${a.assignee ?? "nobody"}`;
+  if (action === "duplicate") return `Copied to KW-${a.number}`;
   if (action === "status") return `${b.status ?? ""} → ${a.status ?? ""}`.replaceAll("_", " ");
   const name = a.name ?? a.title ?? a.fileName ?? b.name ?? b.title ?? b.fileName;
   if (typeof name === "string") return name;

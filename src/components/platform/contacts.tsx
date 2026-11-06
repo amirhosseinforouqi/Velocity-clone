@@ -103,7 +103,7 @@ export function AppContacts({ contacts }: { contacts: Contact[] }) {
                 <tr>
                   <th className={cn(th, "w-8")} />
                   <th className={cn(th, "w-24")}>
-                    <details className="relative">
+                    <details data-dropdown className="relative">
                       <summary className="flex cursor-pointer list-none items-center gap-1 font-bold [&::-webkit-details-marker]:hidden">CASL Opt In <ChevronDown className="size-3" /></summary>
                       <ul className="absolute z-20 mt-1 w-48 rounded-[3px] border border-[#ddd] bg-white py-1 font-normal text-[#333] shadow-lg">
                         <li><button onClick={() => setConfirm(true)} className="w-full px-3 py-1 text-left hover:bg-[#f5f5f5]"><strong>Opt in</strong> all contacts</button></li>
@@ -287,7 +287,7 @@ export function AppContact({ contact: c, subRoles }: { contact: Contact; subRole
   return (
     <AppShell>
       <PageHeader icon={User} title={name} crumbs={[["Contacts", "/contacts"], ["Contact Profile"]]}>
-        <details className="relative">
+        <details data-dropdown className="relative">
           <summary className={cn(blueBtn, "flex cursor-pointer list-none items-center gap-1 px-[13px] py-1.5 text-[12.6px] [&::-webkit-details-marker]:hidden")}>
             Actions <ChevronDown className="size-3.5" />
           </summary>
