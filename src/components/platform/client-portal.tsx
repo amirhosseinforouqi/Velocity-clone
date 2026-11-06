@@ -4,7 +4,7 @@ import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  ArrowLeft, Bell, Check, CircleAlert, CircleCheck, Clock, CloudUpload, FileText, House, Inbox, KeyRound, LoaderCircle, LogOut, Upload, X, type LucideIcon,
+  Bell, Check, CircleAlert, CircleCheck, Clock, CloudUpload, FileText, House, Inbox, KeyRound, LoaderCircle, LogOut, Upload, X, type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -162,14 +162,13 @@ export function ClientApplication({ id, d }: { id: string; d: ClientDealView }) 
   return (
     // A file dropped outside a drop zone would otherwise open in the browser and leave the page.
     <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => e.preventDefault()}>
-      <Link href="/portal" className="inline-flex items-center gap-1 text-xs text-[#428bca] hover:underline"><ArrowLeft className="size-3.5" aria-hidden />My applications</Link>
       <PortalTitle title={d.purpose ? `Your ${d.purpose.toLowerCase()} mortgage` : "Your mortgage"}>Application {d.code} · with {d.firm}</PortalTitle>
       <Journey d={d} todo={todo} />
       <div className="grid items-start gap-x-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <Documents id={id} requests={d.requests} />
         <div>
-          <Updates updates={d.updates} />
           <Messages id={id} d={d} />
+          <Updates updates={d.updates} />
         </div>
       </div>
     </div>
@@ -193,7 +192,6 @@ function Journey({ d, todo }: { d: ClientDealView; todo: number }) {
         <div className={cn("rounded-[3px] border p-[15px]", todo ? "border-[#faebcc] bg-[#fcf8e3] text-[#8a6d3b]" : "border-[#d6e9c6] bg-[#dff0d8] text-[#3c763d]")}>
           <p className="text-[12px] font-semibold tracking-wide uppercase">Your next step</p>
           <p className="mt-1 text-[12.6px] font-semibold">{d.nextAction}</p>
-          {todo > 0 && <a href="#documents" className={cn(blueBtn, btn, "mt-3")}><Upload className="size-4" aria-hidden />Upload documents</a>}
         </div>
       </div>
       {d.stages.length > 0 && (
