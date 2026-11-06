@@ -19,8 +19,19 @@ export async function login(form: FormData) {
     // No email in the URL: the code step asks for the password again alongside the code.
     const n = `next=${encodeURIComponent(next)}`;
     if (e instanceof MfaRequired) redirect(`/login?mfa=1&${n}`);
-    if (e instanceof AuthError && e.type === "CredentialsSignin") redirect(`/login?${form.get("code") ? "mfa=1&" : ""}error=1&${n}`);
-    throw e;
+    if (!(e instanceof AuthError && e.type === "CredentialsSignin")) throw e;
+    // Clients often sign in here instead of /portal/login: if it's their portal login, take them to the portal.
+    if (!form.get("code")) await clientSignIn(form);
+    redirect(`/login?${form.get("code") ? "mfa=1&" : ""}error=1&${n}`);
+  }
+}
+
+// Success throws Next's redirect, which passes through; only a rejected login comes back here.
+async function clientSignIn(form: FormData) {
+  try {
+    await signIn("client", { email: form.get("email"), password: form.get("password"), redirectTo: "/portal" });
+  } catch (e) {
+    if (!(e instanceof AuthError && e.type === "CredentialsSignin")) throw e;
   }
 }
 

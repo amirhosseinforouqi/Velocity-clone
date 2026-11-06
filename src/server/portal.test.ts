@@ -344,4 +344,7 @@ test("client experience: rules pick the documents, then one step creates the dea
   assert.equal(r.invite.login!.username, "wizard.primary@example.test");
   const account = await verifyClientLogin(db, r.invite.login!.username, r.invite.login!.password!);
   assert.ok(account);
+  // The same email set up again (a new contact, a second login): the newest password must work, not just the first one found.
+  const again = await createClientExperience(db, as.agent, { service: "Purchase", employment: "Employee", documents, borrowers: borrowers.slice(0, 1) });
+  assert.ok(await verifyClientLogin(db, again.invite.login!.username, again.invite.login!.password!));
 });

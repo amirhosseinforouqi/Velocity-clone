@@ -49,9 +49,12 @@ export async function setOwnPassword(db: Db, account: ClientAccount, password: s
 export async function verifyClientLogin(db: Db, rawEmail: string, password: string) {
   const email = rawEmail.trim().toLowerCase();
   if (locked(`c:${email}`)) return null;
-  const [c] = await db.select().from(clients).where(and(eq(clients.email, email), isNotNull(clients.accountId), isNull(clients.disabledAt))).limit(1);
+  // The same email can have more than one login (set up twice as separate contacts), so try each.
   // An unused temporary password stops working at its expiry; the client asks their team for a new invitation.
-  if (!c || (c.passwordExpiresAt && c.passwordExpiresAt <= new Date()) || !(await checkPassword(password, c.passwordHash))) {
+  const rows = await db.select().from(clients).where(and(eq(clients.email, email), isNotNull(clients.accountId), isNull(clients.disabledAt)));
+  let c: (typeof rows)[number] | undefined;
+  for (const r of rows) if ((!r.passwordExpiresAt || r.passwordExpiresAt > new Date()) && (await checkPassword(password, r.passwordHash))) { c = r; break; }
+  if (!c) {
     recordFailure(`c:${email}`);
     return null;
   }
