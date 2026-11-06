@@ -1,24 +1,20 @@
 import type { ReactNode } from "react";
 import { KeyRound } from "lucide-react";
-import { portalFonts } from "./fonts";
 
-// Sign-in and set-password card for clients, in the portal's look.
-export const field = "mt-1 h-11 w-full rounded-xl border border-[#d8d2c4] bg-white px-3 text-[15px] text-[#1c2a27] outline-none focus:border-[#1f5c4a] focus:ring-4 focus:ring-[#1f5c4a]/10";
-export const submit = "mt-2 h-11 w-full rounded-full bg-[#1f5c4a] text-sm font-semibold text-white transition hover:bg-[#174636] disabled:opacity-60";
+// Same card as the staff sign-in, labelled for clients.
+export const field = "mt-1 h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-[#3d81be] focus:ring-2 focus:ring-[#3d81be]/20";
+export const submit = "mt-2 h-10 w-full rounded-md bg-[#3d81be] text-sm font-semibold text-white hover:bg-[#346fa4] disabled:opacity-60";
 
 export function AuthCard({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <main className={`${portalFonts} grid min-h-screen place-items-center bg-[#f6f3ec] px-4 py-10 text-[#1c2a27]`}>
-      <div className="w-full max-w-[400px]">
-        <div className="mb-6 flex items-center justify-center gap-2">
-          <span className="grid size-10 place-items-center rounded-full bg-[#1f5c4a] text-white"><KeyRound className="size-5" aria-hidden /></span>
-          <span className="font-[family-name:var(--font-display)] text-2xl font-semibold">Keyway</span>
+    <main className="grid min-h-screen place-items-center bg-slate-100 px-4">
+      <div className="w-full max-w-sm rounded-xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
+        <div className="mb-1 flex items-center gap-2 text-2xl font-semibold text-slate-800">
+          <KeyRound className="size-7 text-[#3d81be]" /> Keyway
         </div>
-        <div className="rounded-2xl border border-[#e4dfd3] bg-white p-8 shadow-[0_1px_2px_rgba(28,42,39,0.04)]">
-          <p className="text-[11px] font-semibold tracking-[0.14em] text-[#5d6b66] uppercase">Client portal</p>
-          <h1 className="mt-2 mb-6 font-[family-name:var(--font-display)] text-2xl leading-snug font-medium">{title}</h1>
-          {children}
-        </div>
+        <p className="mb-6 text-xs font-semibold tracking-wide text-[#3d81be] uppercase">Client Portal</p>
+        <h1 className="mb-4 text-sm text-slate-500">{title}</h1>
+        {children}
       </div>
     </main>
   );
