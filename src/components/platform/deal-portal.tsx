@@ -1,18 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { UsersRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  addNoteAction, assignAction, cancelRequestAction, inviteAction, markReadAction, portalAccessAction, purgeDealAction, releaseFileAction, remindAction, replyAction,
+  addNoteAction, cancelRequestAction, markReadAction, portalAccessAction, purgeDealAction, releaseFileAction, remindAction, replyAction,
   requestDocumentsAction, resendInviteAction, reviewAction, revokeInviteAction, setStageAction, staffAddVersionAction, staffFinishUploadAction, staffStartUploadAction,
   startConversationAction,
 } from "@/app/deal/portal-actions";
 import type { PortalWorkspace } from "@/server/portal";
 import { Confirm, Err, GridPanel, useRun } from "./admin";
-import { AppShell } from "./shell";
+import { InviteModal, NotSent, type Login } from "./new-lead";
 import { blueBtn, greenBtn, greyBtn, Grid, input, label, Modal, redBtn } from "./ui";
 import { ACCEPT, fileSize, scanText, statusText, statusTone, uploadFile, when, type Uploaded } from "./upload";
 
@@ -45,7 +43,7 @@ export function FileLink({ f }: { f: { fileId: string; fileName: string; size: n
   );
 }
 
-// Pick and upload files; reports each finished upload. Used by staff and by clients.
+// Pick files, or drop them on the button, to upload; reports each finished upload. Used by staff and by clients.
 export function UploadButton({ text, multiple, start, finish, done }: {
   text: string; multiple?: boolean;
   start: Parameters<typeof uploadFile>[1]; finish: Parameters<typeof uploadFile>[2]; done: (f: Uploaded) => void | Promise<void>;
@@ -53,6 +51,7 @@ export function UploadButton({ text, multiple, start, finish, done }: {
   const ref = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [over, setOver] = useState(false);
   const pick = async (list: FileList | null) => {
     if (!list?.length) return;
     setBusy(true);
@@ -69,7 +68,9 @@ export function UploadButton({ text, multiple, start, finish, done }: {
   };
   return (
     <span className="inline-flex flex-col items-start">
-      <label className={cn(greyBtn, small, "cursor-pointer", busy && "pointer-events-none opacity-60")}>
+      <label title="Click to choose, or drop a file here" className={cn(greyBtn, small, "cursor-pointer", busy && "pointer-events-none opacity-60", over && "ring-2 ring-[#428bca]")}
+        onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
+        onDrop={(e) => { e.preventDefault(); setOver(false); if (multiple || e.dataTransfer.files.length === 1) pick(e.dataTransfer.files); else setError("Drop one file at a time here."); }}>
         {busy ? "Uploading..." : text}
         <input ref={ref} type="file" accept={ACCEPT} multiple={multiple} className="sr-only" disabled={busy} onChange={(e) => pick(e.target.files)} />
       </label>
@@ -151,26 +152,23 @@ export function ConversationList({ list, open }: { list: Conversation[]; open: (
 const staffUpload = (dealId: string) => ({ start: (i: { fileName: string; size: number; contentType: string }) => staffStartUploadAction(dealId, i), finish: staffFinishUploadAction });
 const inviteText: Record<string, string> = { pending: "Invited", accepted: "Password set", revoked: "Revoked", expired: "Expired" };
 
-export function AppDealPortal({ w, orgAdmin }: { w: PortalWorkspace; orgAdmin: boolean }) {
+export type PortalPart = "documents" | "messages" | "stage" | "activity";
+const Panel = ({ show, ...p }: { show: boolean } & Parameters<typeof GridPanel>[0]) => (show ? <GridPanel {...p} /> : null);
+
+// The portal side of a deal, one part per workspace tab. Rendered outside the deal form: its buttons act on their own.
+export function PortalPanels({ w, orgAdmin, part }: { w: PortalWorkspace; orgAdmin: boolean; part: PortalPart }) {
   usePoll();
   const id = w.deal.id;
   const [modal, setModal] = useState<ReactNode>(null);
-  const [login, setLogin] = useState<{ name: string; why: string; text: string } | null>(null);
+  const [login, setLogin] = useState<{ name: string; why: string; login: Login } | null>(null);
   const [convId, setConvId] = useState<string | null>(null);
   const run = useRun();
   const close = () => setModal(null);
   const name = (contactId: string | null) => (contactId ? w.applicants.find((a) => a.contactId === contactId)?.name ?? "Applicant" : "All applicants");
-  type Login = { link: string; username: string; password: string | null; expires: string | null };
   const invite = (fn: () => Promise<{ error?: string; data?: { login: Login | null; error: string | null } }>, who: string) => run.go(async () => {
     const r = await fn();
     const l = r.data?.login;
-    if (l) setLogin({
-      name: who, why: r.data!.error ?? (w.emailConfigured ? "The email couldn't be sent." : "Email sending isn't set up."),
-      text: `Sign in: ${l.link}
-Username: ${l.username}
-` + (l.password ? `Temporary password: ${l.password}
-It stops working on ${l.expires}. You'll choose your own password when you first sign in.` : "Password: the one you already use for this portal"),
-    });
+    if (l) setLogin({ name: who, why: r.data!.error ?? (w.emailConfigured ? "The email couldn't be sent." : "Email sending isn't set up."), login: l });
     return r;
   });
   const conv = w.conversations.find((c) => c.id === convId);
@@ -178,35 +176,19 @@ It stops working on ${l.expires}. You'll choose your own password when you first
   const unread = w.conversations.reduce((n, c) => n + c.unread, 0);
 
   return (
-    <AppShell deal={{ id, number: w.deal.number }}>
-      <section className="relative mx-[25px] mb-5 flex items-center gap-2.5 text-[#666]">
-        <UsersRound className="size-7 stroke-[1.5]" />
-        <h1 className="text-[28px] leading-[38px] font-light">Client Portal</h1>
-        <ol className="ml-auto hidden items-center gap-1 text-xs sm:flex">
-          <li><Link href="/" className="text-[#444] hover:underline">Home</Link></li>
-          <li className="before:mr-1 before:text-[#ccc] before:content-['>']"><Link href={`/deal/${id}`} className="text-[#444] hover:underline">Deal</Link></li>
-          <li className="before:mr-1 before:text-[#ccc] before:content-['>']">Client Portal</li>
-        </ol>
-      </section>
+    <>
       {run.error && <div className="mx-[25px]"><Err text={run.error} /></div>}
       {login && (
-        <div role="status" className="mx-[25px] mb-4 rounded-[3px] border border-[#faebcc] bg-[#fcf8e3] p-3 text-[12.6px] text-[#8a6d3b]">
-          <p><strong>The welcome email for {login.name} was not sent.</strong> {login.why} Give them these sign-in details another way (they aren&apos;t shown again):</p>
-          <textarea readOnly rows={4} value={login.text} onFocus={(e) => e.target.select()} aria-label="Portal sign-in details" className={cn(input, "mt-2 h-auto font-mono")} />
-          <div className="mt-2 flex gap-2">
-            <button onClick={() => navigator.clipboard?.writeText(login.text)} className={cn(blueBtn, small)}>Copy</button>
-            <button onClick={() => setLogin(null)} className={cn(greyBtn, small)}>Done</button>
-          </div>
-        </div>
+        <div className="mx-[25px] mb-4"><NotSent who={login.name} why={login.why} login={login.login} onDone={() => setLogin(null)} /></div>
       )}
 
-      <GridPanel title="Applicants" tools={!w.emailConfigured && <span className="text-[#8a6d3b]">Email not set up: sign-in details are shown here instead</span>}>
+      <Panel show={part === "messages"} title="Client Portal Access" tools={!w.emailConfigured && <span className="text-[#8a6d3b]">Email not set up: sign-in details are shown here instead</span>}>
         <Grid min={760} head={["Applicant", "Email", "Portal account", "Invitation", "Access", ""]} rows={w.applicants.map((a) => {
           const inv = a.invitations[0];
           return [
             <span key="n">{a.name}{a.primary && <span className="text-[#999]"> (primary)</span>}</span>,
             a.email || <span className="text-[#a94442]">No email on contact</span>,
-            a.accountLinked ? <span key="a">{inv?.status === "pending" ? "Temporary password" : "Active"}{a.lastSignInAt && <span className="block text-[#999]">Last sign-in {when(a.lastSignInAt)}</span>}</span> : "Not yet",
+            a.accountLinked ? <span key="a">{inv?.status === "pending" ? "Not activated yet" : "Active"}{a.lastSignInAt && <span className="block text-[#999]">Last sign-in {when(a.lastSignInAt)}</span>}</span> : "Not yet",
             inv ? (
               <span key="i">
                 {inviteText[inv.status] ?? inv.status}{inv.status === "pending" && ` · expires ${when(inv.expiresAt)}`}
@@ -219,17 +201,17 @@ It stops working on ${l.expires}. You'll choose your own password when you first
             a.accountLinked ? (a.portalAccess ? "On" : "Off") : "",
             <span key="b" className="flex flex-wrap gap-1">
               {inv?.status === "pending" ? <>
-                <button disabled={run.pending} onClick={() => invite(() => resendInviteAction(inv.id), a.name)} className={cn(blueBtn, small)}>Resend</button>
+                <button disabled={run.pending} onClick={() => confirm(`Send the invitation to ${a.name} again?`) && invite(() => resendInviteAction(inv.id), a.name)} className={cn(blueBtn, small)}>Resend</button>
                 <button disabled={run.pending} onClick={() => run.go(() => revokeInviteAction(inv.id))} className={cn(greyBtn, small)}>Revoke</button>
-              </> : <button disabled={run.pending || !a.email} onClick={() => invite(() => inviteAction(id, a.contactId), a.name)} className={cn(greenBtn, small)}>{a.accountLinked ? "Send new password" : inv ? "Invite again" : "Invite"}</button>}
+              </> : <button disabled={run.pending || !a.email} onClick={() => setModal(<InviteModal dealId={id} contactId={a.contactId} name={a.name} email={a.email ?? ""} close={close} />)} className={cn(greenBtn, small)}>{a.accountLinked ? "Send password reset link" : inv ? "Invite again" : "Invite"}</button>}
               {a.accountLinked && <button disabled={run.pending} onClick={() => run.go(() => portalAccessAction(id, a.contactId, !a.portalAccess))} className={cn(greyBtn, small)}>{a.portalAccess ? "Turn off access" : "Turn on access"}</button>}
             </span>,
           ];
         })} />
         <p className="mt-2 text-[#999]">Each applicant only sees documents and messages addressed to them or to all applicants.</p>
-      </GridPanel>
+      </Panel>
 
-      <GridPanel title="Progress" tools={<button onClick={() => setModal(<StageModal w={w} close={close} />)} className={cn(greenBtn, "px-3 py-1")}>Update Stage</button>}>
+      <Panel show={part === "stage"} title="What the Client Sees" tools={<button onClick={() => setModal(<StageModal w={w} close={close} />)} className={cn(greenBtn, "px-3 py-1")}>Update Stage</button>}>
         <ol className="mb-3 flex flex-wrap gap-1" aria-label="Client-facing stages">
           {w.stages.map((s, i) => {
             const at = w.stages.findIndex((x) => x.id === w.deal.clientStageId);
@@ -238,9 +220,9 @@ It stops working on ${l.expires}. You'll choose your own password when you first
         </ol>
         <p className="mb-2 text-[#999]">This is what clients see. The internal deal status is separate and never shown to them.</p>
         <Grid min={500} head={["Date", "Stage", "Message to client", "By"]} empty="Not started" rows={w.updates.map((u) => [when(u.at), u.label, u.message, u.by])} />
-      </GridPanel>
+      </Panel>
 
-      <GridPanel title="Documents" tools={<button onClick={() => setModal(<RequestModal w={w} close={close} />)} className={cn(greenBtn, "px-3 py-1")}>Request Documents</button>}>
+      <Panel show={part === "documents"} title="Document Checklist" tools={<button onClick={() => setModal(<RequestModal w={w} close={close} />)} className={cn(greenBtn, "px-3 py-1")}>Request Documents</button>}>
         {!byCategory.length && <p className="text-[#999]">No documents requested yet.</p>}
         {byCategory.map(([category, list]) => (
           <div key={category} className="mb-3">
@@ -267,39 +249,27 @@ It stops working on ${l.expires}. You'll choose your own password when you first
             ])} />
           </div>
         ))}
-      </GridPanel>
+      </Panel>
 
-      <GridPanel title={`Messages${unread ? ` (${unread} unread)` : ""}`} tools={<button onClick={() => setModal(<NewConversationModal w={w} close={close} open={setConvId} />)} className={cn(greenBtn, "px-3 py-1")}>New Message</button>}>
+      <Panel show={part === "messages"} title={`Messages${unread ? ` (${unread} unread)` : ""}`} tools={<button onClick={() => setModal(<NewConversationModal w={w} close={close} open={setConvId} />)} className={cn(greenBtn, "px-3 py-1")}>New Message</button>}>
         {conv ? (
           <>
             <p className="mb-2 text-[#999]">With: {name(conv.applicantContactId)}</p>
             <Thread c={conv} back={() => setConvId(null)} reply={replyAction} markRead={markReadAction} upload={staffUpload(id)} />
           </>
         ) : <ConversationList list={w.conversations} open={setConvId} />}
-      </GridPanel>
+      </Panel>
 
-      <GridPanel title="Staff Notes" tools={<span className="font-semibold text-[#a94442]">Internal: clients never see these</span>}>
+      <Panel show={part === "messages"} title="Staff Notes" tools={<span className="font-semibold text-[#a94442]">Internal: clients never see these</span>}>
         <NoteForm dealId={id} categories={w.noteCategories} />
         <Notes notes={w.notes} />
-      </GridPanel>
+      </Panel>
 
-      {w.team && (
-        <GridPanel title="Assignment">
-          <label className="flex max-w-[400px] items-center gap-2">
-            <span className="whitespace-nowrap">Assigned to</span>
-            <select value={w.deal.assigneeId ?? ""} disabled={run.pending} onChange={(e) => run.go(() => assignAction(id, e.target.value))} className={input}>
-              <option value="">The deal&apos;s agent</option>
-              {w.team.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </select>
-          </label>
-        </GridPanel>
-      )}
-
-      <GridPanel title="Portal Activity" tools={orgAdmin && <button onClick={() => setModal(<Confirm title="Delete Portal Data" text="Permanently delete this deal's portal files and message text, and turn off client access? Names, dates and the audit trail are kept. This can't be undone." close={close} ok={() => purgeDealAction(id)} />)} className={cn(redBtn, "px-3 py-1")}>Delete Portal Data</button>}>
+      <Panel show={part === "activity"} title="Portal Activity" tools={orgAdmin && <button onClick={() => setModal(<Confirm title="Delete Portal Data" text="Permanently delete this deal's portal files and message text, and turn off client access? Names, dates and the audit trail are kept. This can't be undone." close={close} ok={() => purgeDealAction(id)} />)} className={cn(redBtn, "px-3 py-1")}>Delete Portal Data</button>}>
         <Grid min={500} head={["Date", "Action", "By"]} rows={w.activity.map((a) => [when(a.at), a.action.replace("portal_", "").replaceAll("_", " "), a.staff ?? a.client ?? "System"])} />
-      </GridPanel>
+      </Panel>
       {modal}
-    </AppShell>
+    </>
   );
 }
 

@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — unified workspace redesign (2026-11-14, local only, not deployed)
+- New Lead button and form: duplicate check, application type, employment situation, Create Lead Only / Create Lead & Invite Client.
+- One workspace per file with a compact client header and nine tabs; a lead and an application are the same record.
+- Repeatable employments, other income, assets and liabilities with add, remove-with-confirm and undo.
+- Portal access, document checklist and secure messages inside the file.
+- Portal invitations by one-time setup link with review and confirmation; honest status when email is not configured.
+- Configurable lead stages and lead sources (Admin → Organization).
+- Calculators start from the open file's figures.
+- SIN encrypted at rest, masked on screen and print, excluded from the audit trail.
+- Documents: PRODUCT_REDESIGN, CRM_SPECIFICATION, APPLICATION_WORKSPACE, INTEGRATION_ARCHITECTURE, IMPLEMENTATION_PLAN, TEST_RESULTS, USER_GUIDE.
+
+### Added — follow-up round (2026-11-14, local only, not deployed)
+- Qualifying defaults (stress buffer, rate floor, revolving percentage) editable in Admin → Organization.
+- Total Assets, Total Liabilities and Net Worth calculated from the entries.
+- Drag-and-drop upload for staff on the document checklist and on lender conditions.
+- Calendar shows each file's closing, conditions and follow-up dates.
+- Every new lead creates a "First contact" task for its agent.
+- SECURITY_AUDIT and DEPLOYMENT_CHECKLIST (with a production-readiness assessment).
+
+### Security — follow-up round
+- Next.js 16.3.5 → 16.4.6; `shadcn` moved to dev dependencies; runtime `npm audit` advisories 18 → 0.
+
+### Security — 2026-11-15 (local only, not deployed)
+- Sign-in lockout is counted in the database (new table `login_failures`, migration `0016`) instead of server memory.
+- `Strict-Transport-Security`, `Permissions-Policy` and a report-only `Content-Security-Policy` are sent on every page.
+- Documents staff attach to lender conditions go through the virus scan when a scanner is configured.
+
+### Fixed — bug audit (2026-11-15, local only)
+- Long-name leads no longer fail after being created; Calculated Payment shows on early files; five malformed-input
+  cases now refuse cleanly instead of raising a database error. See TEST_RESULTS "Bug audit".
+- Second pass: a signed-in client is turned back to the portal from every staff page (four data-free staff screens
+  used to render for them); NUL characters in text fields are dropped instead of raising a database error.
+
+### Changed — follow-up round
+- Admin menu hidden for agents and assistants.
+- Pipeline volume uses price less down payment when no mortgage amount is entered.
+- Portal says "Shared with your co-applicant" only when there is one.
+- Session provider resets when a different user signs in.
+
+### Changed
+- Sidebar: Dashboard, Pipeline, Messages, CRM & Contacts, Tasks & My Day; the deal submenu lists the nine tabs.
+- GDS/TDS include additional employments, other income and listed liabilities; mortgage amount falls back to loan amount, then price less down payment.
+- Old deal tab URLs redirect to the new tabs.
+- "Send new password" renamed "Send password reset link".
+- Audit trail no longer records unchanged dates on every save.
+
 ### Fixed
 - Count the README token badge in CI so it reflects the current default branch instead of a stale hosted count.
 

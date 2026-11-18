@@ -1,28 +1,29 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, lt, sql } from "drizzle-orm";
 import type { Actor } from "./access.ts";
 import type { Db } from "./db.ts";
 import { audit } from "./audit.ts";
 import { ValidationError } from "./contacts.ts";
 import { checkTotp, newTotpSecret, openSecret, otpauthUri, sealSecret } from "./mfa.ts";
 import { hashPassword, verifyPassword } from "./password.ts";
-import { organizations, users } from "./schema.ts";
+import { loginFailures, organizations, users } from "./schema.ts";
 
-const failures = new Map<string, { count: number; until: number }>();
 const MAX_FAILURES = 5;
 const LOCK_MS = 15 * 60 * 1000;
 let dummyHash: Promise<string> | undefined;
 
 // Lockout per key ("<email>" for staff, "c:<email>" for portal clients). Shared by both sign-ins.
-// ponytail: lockout counter lives in process memory; move it to the database or Redis when running more than one instance.
-export const locked = (key: string, now = Date.now()) => {
-  const f = failures.get(key);
+// Kept in the database so the count holds across server instances and restarts.
+export async function locked(db: Db, key: string, now = new Date()) {
+  const [f] = await db.select().from(loginFailures).where(eq(loginFailures.key, key));
   return !!f && f.count >= MAX_FAILURES && f.until > now;
-};
-export function recordFailure(key: string, now = Date.now()) {
-  const f = failures.get(key);
-  failures.set(key, { count: f && f.until > now ? f.count + 1 : 1, until: now + LOCK_MS });
 }
-export const clearFailures = (key: string) => failures.delete(key);
+export async function recordFailure(db: Db, key: string, now = new Date()) {
+  // Expired rows go first, so a count restarts after the window and unknown emails don't pile up.
+  await db.delete(loginFailures).where(lt(loginFailures.until, now));
+  await db.insert(loginFailures).values({ key: key.slice(0, 400), count: 1, until: new Date(now.getTime() + LOCK_MS) })
+    .onConflictDoUpdate({ target: loginFailures.key, set: { count: sql`${loginFailures.count} + 1`, until: new Date(now.getTime() + LOCK_MS) } });
+}
+export const clearFailures = (db: Db, key: string) => db.delete(loginFailures).where(eq(loginFailures.key, key));
 // Hash even for unknown emails so response time doesn't reveal which accounts exist.
 export const checkPassword = async (password: string, hash: string | null | undefined) => verifyPassword(password, hash ?? (await (dummyHash ??= hashPassword("unused"))));
 
@@ -30,21 +31,21 @@ export const checkPassword = async (password: string, hash: string | null | unde
 // A wrong code counts as a failure, so codes can't be guessed past the lockout either.
 export async function verifyLogin(db: Db, rawEmail: string, password: string, code = "") {
   const email = rawEmail.trim().toLowerCase();
-  if (locked(email)) return null;
+  if (email.includes("\0") || (await locked(db, email))) return null; // Postgres rejects NUL bytes; treat as a failed sign-in, not a crash
   const [user] = await db.select().from(users).where(and(eq(users.email, email), isNull(users.deactivatedAt)));
   if (!user || !(await checkPassword(password, user.passwordHash))) {
-    recordFailure(email);
+    await recordFailure(db, email);
     return null;
   }
   if (user.mfaEnabledAt && user.totpSecret) {
     if (!code) return "mfa" as const;
     if (!checkTotp(openSecret(user.totpSecret), code)) {
-      recordFailure(email);
+      await recordFailure(db, email);
       return null;
     }
   }
-  clearFailures(email);
-  return { id: user.id, name: user.name, email: user.email, kind: "staff" as const };
+  await clearFailures(db, email);
+  return { id: user.id, name: user.name, email: user.email, kind: "staff" as const, role: user.role };
 }
 
 export async function getActor(db: Db, id: string): Promise<(Actor & { name: string; email: string; mfaEnabled: boolean; mfaRequired: boolean }) | null> {

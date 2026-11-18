@@ -8,12 +8,13 @@ import { dealScope, Forbidden, type Actor } from "./access.ts";
 import { getOrganization, isAdmin, text } from "./admin.ts";
 import { audit } from "./audit.ts";
 import { MAX_UPLOAD, sniffType } from "./conditions.ts";
-import { createContact, ValidationError } from "./contacts.ts";
+import { createContact, getContact, ValidationError } from "./contacts.ts";
 import type { Db, Tx } from "./db.ts";
 import { dealCode } from "./deal-status.ts";
-import { createDeal } from "./deals.ts";
-import { employments, services } from "./doc-rules.ts";
-import { emailConfigured, sendEmail, type TemplateKind } from "./email.ts";
+import { assignDeal as assignFile, createDeal, dealStaff } from "./deals.ts";
+import { defaultDocuments, employments, formatPhone, services, starterFields, validPhone } from "./doc-rules.ts";
+import { emailConfigured, getTemplate, render, sendEmail, type TemplateKind } from "./email.ts";
+import { createTask, today } from "./tasks.ts";
 import { hashPassword } from "./password.ts";
 import {
   auditLog, clientInvitations, clients, contacts, conversationReads, conversations, dealBorrowers, dealNotes, deals, documentChecklists,
@@ -209,12 +210,15 @@ export async function inviteApplicant(db: Db, actor: Actor, dealId: string, cont
     await portalAudit(tx, actor, dealId, "invite", { invitationId: inv.id, contactId, linked: shared });
     return { inv, shared };
   });
-  const link = `${appUrl()}/portal/login`;
+  // No password is ever emailed. A new client gets a one-time setup link (the code in it only opens the choose-a-password page and
+  // stops working once they have); a client who already has a sign-in is just pointed at the sign-in page.
+  const link = shared ? `${appUrl()}/portal/login` : `${appUrl()}/portal/setup?i=${inv.id}&t=${password}`;
   const delivery = await sendEmail(db, {
     organizationId: deal.organizationId, kind: shared ? "portal_added" : "invitation", to: email, invitationId: inv.id,
-    vars: { name: b.c.firstName, link, username: email, ...(!shared && { password, expires: longDate(expiresAt) }) },
+    vars: { name: b.c.firstName, link, username: email, ...(!shared && { expires: longDate(expiresAt) }) },
   });
-  await db.update(clientInvitations).set({ sentCount: 1, lastSentAt: new Date() }).where(eq(clientInvitations.id, inv.id));
+  // Only a delivered email counts as sent; otherwise the invitation stays "prepared" and staff share the link themselves.
+  if (delivery.status === "sent") await db.update(clientInvitations).set({ sentCount: 1, lastSentAt: new Date() }).where(eq(clientInvitations.id, inv.id));
   // The sign-in details are handed back only when the email didn't go out, so staff can pass them on another way. Never stored.
   return {
     invitationId: inv.id, status: delivery.status, error: delivery.error,
@@ -253,6 +257,7 @@ export async function revokeInvitation(db: Db, actor: Actor, invitationId: strin
 export async function setPortalAccess(db: Db, actor: Actor, dealId: string, contactId: string, on: boolean) {
   await staffDeal(db, actor, dealId);
   const [c] = UUID.test(contactId) ? await db.select().from(clients).where(eq(clients.contactId, contactId)) : [];
+  if (!UUID.test(contactId)) throw new ValidationError("That person isn't an applicant on this deal");
   if (on && !c?.accountId) throw new ValidationError("This applicant doesn't have a portal sign-in yet. Send an invitation instead.");
   await db.transaction(async (tx) => {
     const r = await tx.update(dealBorrowers).set({ portalAccess: on }).where(and(eq(dealBorrowers.dealId, dealId), eq(dealBorrowers.contactId, contactId))).returning();
@@ -319,10 +324,7 @@ export async function createClientExperience(db: Db, actor: Actor, input: Record
   for (const p of people) if (!EMAIL.test(String(p?.email ?? "").trim())) throw new ValidationError("Every applicant needs a valid email address");
   const ids: string[] = [];
   for (const p of people) ids.push((await createContact(db, actor, { firstName: p.firstName, lastName: p.lastName, email: String(p.email).trim() })).id);
-  const fields: Record<string, string> = service === "Business Loan"
-    ? { "mortgageRequest/Mortgage Breakdown/Program": "Business Loan" }
-    : { "mortgageRequest/Mortgage Breakdown/Application Purpose": service };
-  if (employment === "Self-Employed") fields["borrowers/Employment/Self Employed"] = "Yes";
+  const fields = starterFields(service, employment);
   if (input.firstTimeBuyer === true) fields["borrowers/Residency/First Time Buyer"] = "Yes";
   const deal = await createDeal(db, actor, ids[0], { status: "new_deal" }, fields);
   await db.transaction(async (tx) => {
@@ -331,6 +333,64 @@ export async function createClientExperience(db: Db, actor: Actor, input: Record
     await portalAudit(tx, actor, deal.id, "request", { count: items.length, applicantContactId: null, service, employment });
   });
   return { dealId: deal.id, invite: await inviteApplicant(db, actor, deal.id, ids[0]) };
+}
+
+// ---- New Lead: the quick form. Name, email, phone, application type and employment situation are enough to open the
+// workspace with the right starting checklist. Nothing is emailed unless `invite` is set (the form asks staff to confirm first).
+// ponytail: not one transaction, like createClientExperience above; a failure part-way leaves the contact or lead for staff to finish.
+export async function createLead(db: Db, actor: Actor, input: Record<string, unknown>) {
+  const service = services.find((s) => s === input.service);
+  const employment = employments.find((e) => e === input.employment);
+  if (!service) throw new ValidationError("Choose what the application is for");
+  if (!employment) throw new ValidationError("Choose the employment situation");
+  const firstName = text(input.firstName, "First name", 100), lastName = text(input.lastName, "Last name", 100);
+  const email = String(input.email ?? "").trim().toLowerCase();
+  if (!EMAIL.test(email) || email.length > 200) throw new ValidationError("Enter a valid email address");
+  if (!validPhone(String(input.phone ?? ""))) throw new ValidationError("Enter a 10-digit phone number");
+  const phone = formatPhone(String(input.phone));
+  const org = await getOrganization(db, actor.organizationId);
+  const source = String(input.source ?? "");
+  if (source && !org.settings.leadSources.includes(source)) throw new ValidationError("Choose a lead source from the list");
+  const note = text(input.note, "Note", 2000, false);
+  const pick = (v: unknown) => (typeof v === "string" && v ? v : null);
+  const agentId = pick(input.agentId), assistantId = pick(input.assistantId);
+  if (agentId && agentId !== actor.id && !isAdmin(actor)) throw new Forbidden("Only admins can assign a lead to another agent");
+  const staff = new Set((await dealStaff(db, actor, actor)).map((u) => u.id));
+  if ([agentId, assistantId].some((id) => id && !staff.has(id))) throw new ValidationError("Choose someone from the list");
+
+  // An existing client is reused as they are (their record isn't overwritten); otherwise a new contact is created.
+  const existing = pick(input.contactId);
+  if (existing && !(await getContact(db, actor, existing))) throw new Forbidden("Contact not found");
+  const contactId = existing ?? (await createContact(db, actor, { firstName, lastName, email, cellPhone: phone })).id;
+  const fields = { ...starterFields(service, employment), "lead//Lead Stage": org.settings.leadStages[0], ...(source && { "lead//Lead Source": source }) };
+  const deal = await createDeal(db, actor, contactId, { status: "lead" }, fields);
+  const items = defaultDocuments(service, employment);
+  await db.transaction(async (tx) => {
+    await tx.insert(documentRequests).values(items.map((i) => ({ dealId: deal.id, applicantContactId: null, ...i, createdBy: actor.id })));
+    await portalAudit(tx, actor, deal.id, "request", { count: items.length, applicantContactId: null, service, employment });
+    if (note) await tx.insert(dealNotes).values({ dealId: deal.id, authorId: actor.id, body: note, category: org.settings.noteCategories[0] });
+  });
+  if (assistantId || (agentId && agentId !== actor.id))
+    await assignFile(db, actor, deal.id, { ...(agentId && agentId !== actor.id && { agentId }), ...(assistantId && { assigneeId: assistantId }) });
+  // Automation: every new lead gets a first-contact task today for its agent, so it shows in My Day and the Calendar.
+  await createTask(db, actor, { type: "followup", title: `First contact: ${firstName} ${lastName}`.slice(0, 200), dueDate: today(), dealId: deal.id, assigneeId: agentId ?? actor.id });
+  return { dealId: deal.id, invite: input.invite === true ? await inviteApplicant(db, actor, deal.id, contactId) : null };
+}
+
+// What the welcome email will say, shown to staff for review before they confirm an invitation. The real link is only made on confirm.
+export async function invitationPreview(db: Db, actor: Actor, firstName: string) {
+  const [org] = await db.select({ name: organizations.name, days: organizations.inviteExpiryDays }).from(organizations).where(eq(organizations.id, actor.organizationId));
+  const t = await getTemplate(db, actor.organizationId, "invitation");
+  const vars = { firm: org.name, name: firstName.trim().slice(0, 100) || "there", link: "[secure one-time setup link]", username: "[the client's email address]", expires: longDate(new Date(Date.now() + org.days * 86_400_000)) };
+  return { subject: render(t.subject, vars), body: render(t.body, vars), configured: emailConfigured() };
+}
+
+// The email behind a still-pending invitation, for the one-time setup link. Says nothing about why when there isn't one.
+export async function pendingInvitationEmail(db: Db, invitationId: string) {
+  const [inv] = UUID.test(invitationId)
+    ? await db.select({ email: clientInvitations.email }).from(clientInvitations).where(and(eq(clientInvitations.id, invitationId), eq(clientInvitations.status, "pending"), gt(clientInvitations.expiresAt, new Date())))
+    : [];
+  return inv?.email ?? null;
 }
 
 async function staffRequest(db: Db, actor: Actor, requestId: string) {
@@ -492,7 +552,8 @@ export async function addNote(db: Db, actor: Actor, dealId: string, body: unknow
 }
 
 // Admins assign; the assignee must be an active user who could manage the deal's office.
-export async function assignDeal(db: Db, actor: Actor, dealId: string, userId: string | null) {
+export async function assignDeal(db: Db, actor: Actor, dealId: string, rawUserId: string | null) {
+  const userId = rawUserId || null;
   if (!isAdmin(actor)) throw new Forbidden("Only an admin can assign applications");
   const deal = await staffDeal(db, actor, dealId);
   if (userId) {

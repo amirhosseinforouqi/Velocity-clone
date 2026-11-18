@@ -29,9 +29,7 @@ export function DealConditions() {
       setError(r.error ?? "");
       if (!r.error) then?.();
     });
-  const upload = (conditionId: string, input: HTMLInputElement) => {
-    const file = input.files?.[0];
-    input.value = "";
+  const upload = (conditionId: string, file?: File | null) => {
     if (!file) return;
     if (file.size > MAX_UPLOAD) return setError("Files must be 10 MB or less");
     const form = new FormData();
@@ -64,9 +62,13 @@ export function DealConditions() {
                       </li>
                     ))}
                   </ul>
-                  <label className="mt-1 inline-block cursor-pointer text-[#428bca] hover:underline">
-                    Upload…
-                    <input type="file" accept="application/pdf,image/jpeg,image/png" disabled={busy} className="sr-only" aria-label={`Upload a document for ${c.name}`} onChange={(e) => upload(c.id, e.currentTarget)} />
+                  <label
+                    className="mt-1 inline-block cursor-pointer rounded-[3px] border border-dashed border-transparent px-1 text-[#428bca] hover:border-[#428bca] hover:underline"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => { e.preventDefault(); if (!busy && !list.locked) upload(c.id, e.dataTransfer.files[0]); }}
+                  >
+                    Upload or drop a file…
+                    <input type="file" accept="application/pdf,image/jpeg,image/png" disabled={busy} className="sr-only" aria-label={`Upload a document for ${c.name}`} onChange={(e) => { const file = e.currentTarget.files?.[0]; e.currentTarget.value = ""; upload(c.id, file); }} />
                   </label>
                 </td>
                 <td className="border-t border-[#ddd] p-2">

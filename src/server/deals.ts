@@ -6,6 +6,8 @@ import { applySmartRules } from "./conditions.ts";
 import { isContactRole } from "./contact-roles.ts";
 import { getContact, ValidationError } from "./contacts.ts";
 import type { Db } from "./db.ts";
+import { dealMetrics } from "./metrics.ts";
+import { openSecret, sealSecret } from "./mfa.ts";
 import { allowedMoves, type DealStatus } from "./deal-status.ts";
 import { auditLog, clients, contacts, dealBorrowers, dealConditions, dealContacts, deals, dealStatusHistory, documents, tasks, users } from "./schema.ts";
 
@@ -124,7 +126,7 @@ export async function createDeal(db: Db, actor: Actor, contactId: string, input:
   const status = values.status;
   if (!(await getContact(db, actor, contactId))) throw new Forbidden("Contact not found");
   return db.transaction(async (tx) => {
-    const [row] = await tx.insert(deals).values({ ...values, fields, organizationId: actor.organizationId, officeId: actor.officeId, agentId: actor.id }).returning();
+    const [row] = await tx.insert(deals).values({ ...values, purpose: fields[PURPOSE] ?? null, fields, organizationId: actor.organizationId, officeId: actor.officeId, agentId: actor.id }).returning();
     await tx.insert(dealBorrowers).values({ dealId: row.id, contactId, position: 0 });
     await tx.insert(dealStatusHistory).values({ dealId: row.id, from: null, to: status, actorId: actor.id });
     await audit(tx, actor, "deal", row.id, "create", null, row);
@@ -187,6 +189,15 @@ export async function duplicateDeal(db: Db, actor: Actor, id: string) {
   });
 }
 
+// SINs are encrypted at rest and only ever leave the server masked; nobody can read one back, only replace it.
+const isSin = (k: string) => k.endsWith("/SIN");
+const MASK = "•••-•••-";
+export function maskSins(fields: Record<string, string>) {
+  const out = { ...fields };
+  for (const k of Object.keys(out)) if (isSin(k)) out[k] = MASK + (out[k].startsWith("enc:") ? openSecret(out[k].slice(4)) : out[k].replace(/\D/g, "")).slice(-3); // plain = saved before encryption
+  return out;
+}
+
 // Saves the workspace fields that were sent; unknown keys are ignored, so the client can't write arbitrary JSON.
 export async function saveDeal(db: Db, actor: Actor, id: string, input: Record<string, unknown>) {
   const before = await mustGet(db, actor, id);
@@ -195,18 +206,29 @@ export async function saveDeal(db: Db, actor: Actor, id: string, input: Record<s
     if (!fieldKeys.has(k)) continue;
     const s = typeof v === "string" ? v.trim() : "";
     if (s.length > 2000) throw new ValidationError(`${k.split("/").pop()} is too long`);
+    if (isSin(k) && s) {
+      if (s.startsWith(MASK)) continue; // the masked value came back untouched
+      const digits = s.replace(/[\s-]/g, "");
+      if (!/^\d{9}$/.test(digits)) throw new ValidationError("A SIN is 9 digits");
+      fields[k] = "enc:" + sealSecret(digits);
+      continue;
+    }
     if (s) fields[k] = s;
     else delete fields[k];
   }
   const cols: Partial<Record<(typeof dateCols)[number], string | null>> = {};
   for (const c of dateCols) if (c in input) cols[c] = cleanDate(input[c], c.replace("Date", " date"));
-  const amount = cleanAmount(AMOUNTS.map((k) => fields[k]).find(Boolean));
+  // Same fallback as the ratios (loan amount, then price less down payment), so Pipeline volume isn't $0 on an early file.
+  const amount = cleanAmount(AMOUNTS.map((k) => fields[k]).find(Boolean)) ?? cleanAmount(String(dealMetrics(fields).parts.mortgage ?? ""));
   const changed = Object.keys({ ...before.fields, ...fields }).filter((k) => before.fields[k] !== fields[k]);
-  const pick = (f: Record<string, string>) => Object.fromEntries(changed.map((k) => [k, f[k] ?? null]));
-  const oldCols = Object.fromEntries(Object.keys(cols).map((c) => [c, before[c as keyof typeof cols]]));
+  // The audit trail records that a SIN changed, never the number.
+  const pick = (f: Record<string, string>) => Object.fromEntries(changed.map((k) => [k, isSin(k) && f[k] ? (f === fields ? "[new SIN]" : "[old SIN]") : f[k] ?? null]));
+  // Only dates that actually moved go in the audit trail.
+  const moved = (Object.keys(cols) as (keyof typeof cols)[]).filter((c) => (before[c] ?? null) !== (cols[c] ?? null));
+  const oldCols = Object.fromEntries(moved.map((c) => [c, before[c]]));
   return db.transaction(async (tx) => {
     const [row] = await tx.update(deals).set({ ...cols, fields, amount, purpose: fields[PURPOSE] ?? null, updatedAt: new Date() }).where(eq(deals.id, id)).returning();
-    await audit(tx, actor, "deal", id, "update", { ...pick(before.fields), ...oldCols }, { ...pick(fields), ...cols });
+    await audit(tx, actor, "deal", id, "update", { ...pick(before.fields), ...oldCols }, { ...pick(fields), ...Object.fromEntries(moved.map((c) => [c, cols[c]])) });
     await applySmartRules(tx, actor, row);
     return row;
   });

@@ -6,7 +6,7 @@ import { ValidationError } from "./contacts.ts";
 import type { Db, Tx } from "./db.ts";
 import type { DealStatus } from "./deal-status.ts";
 import { conditionStatus, conditionTemplates, dealConditions, deals, documents, users } from "./schema.ts";
-import { getFile, putFile } from "./storage.ts";
+import { getFile, putFile, scanBytes } from "./storage.ts";
 
 export type ConditionStatus = (typeof conditionStatus.enumValues)[number];
 export const MAX_UPLOAD = 10 * 1024 * 1024; // keep in step with deal-conditions.tsx and next.config.ts
@@ -117,7 +117,8 @@ export async function uploadDocument(db: Db, actor: Actor, conditionId: string, 
   if (file.bytes.length > MAX_UPLOAD) throw new ValidationError("Files must be 10 MB or less");
   const contentType = sniffType(file.bytes);
   if (!contentType) throw new ValidationError("Only PDF, JPEG and PNG files can be uploaded");
-  // ponytail: no virus scan; that is a pending integration and must exist before client uploads (step 11).
+  // With no scanner configured this is "not_scanned" and the upload goes ahead, as before; staff are trusted users.
+  if ((await scanBytes(file.bytes)) === "infected") throw new ValidationError("This file was blocked by the virus scan and was not saved");
   const fileName = file.name.replace(/[\\/"\x00-\x1f]/g, "_").trim().slice(-200) || "document";
   return db.transaction(async (tx) => {
     const [doc] = await tx.insert(documents).values({ dealId: condition.dealId, conditionId, fileName, contentType, size: file.bytes.length, uploadedBy: actor.id }).returning();

@@ -368,7 +368,7 @@ export function AppUserMatrix({ users, offices, roles }: { users: AdminUserRow[]
 
 // ---- Organization
 
-export type OrgView = { name: string; settings: { sla: Record<string, number>; reminders: { urgent: number; warning: number; notice: number }; features: string[]; noteCategories: string[]; contactSubRoles: { role: string; name: string }[] } };
+export type OrgView = { name: string; settings: { sla: Record<string, number>; reminders: { urgent: number; warning: number; notice: number }; features: string[]; noteCategories: string[]; leadStages: string[]; leadSources: string[]; contactSubRoles: { role: string; name: string }[]; qualification: { stressBuffer: number; rateFloor: number; revolvingPct: number } } };
 
 export function AppOrganizationEdit({ org, slaStatuses }: { org: OrgView; slaStatuses: DealStatus[] }) {
   const { submit, footer } = useSave(saveOrganizationAction);
@@ -389,6 +389,14 @@ export function AppOrganizationEdit({ org, slaStatuses }: { org: OrgView; slaSta
         <Box title="Deal Reminders (days before closing or conditions)">
           <div className="grid gap-3 sm:grid-cols-3">{(["urgent", "warning", "notice"] as const).map((k) => <F key={k} name={`reminders.${k}`} text={`${k[0].toUpperCase()}${k.slice(1)} within`} type="number" value={String(s.reminders[k])} />)}</div>
         </Box>
+        <Box title="Qualifying Defaults (GDS / TDS)">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <F name="qualification.stressBuffer" text="Stress-test buffer over contract rate (%)" value={String(s.qualification.stressBuffer)} required />
+            <F name="qualification.rateFloor" text="Qualifying rate floor (%)" value={String(s.qualification.rateFloor)} required />
+            <F name="qualification.revolvingPct" text="Card / line of credit payment (% of balance)" value={String(s.qualification.revolvingPct)} required />
+          </div>
+          <p className="mt-2 text-[#999]">Used for the ratios on every file when a qualifying rate or a payment isn&apos;t entered. These are your firm&apos;s working defaults, not any lender&apos;s rules; confirm each lender&apos;s own.</p>
+        </Box>
         <Box title="Features">
           <div className="mb-2"><Search value={q} set={setQ} text="Filter:" /></div>
           {/* Filtered-out flags stay in the form (hidden) so saving keeps them. */}
@@ -403,6 +411,19 @@ export function AppOrganizationEdit({ org, slaStatuses }: { org: OrgView; slaSta
             <textarea name="noteCategories" rows={8} defaultValue={s.noteCategories.join("\n")} required className="w-full rounded-[3px] border border-[#ccc] px-2 py-1" />
           </label>
           <p className="mt-2 text-[#999]">Removing a category keeps it on notes that already use it.</p>
+        </Box>
+        <Box title="Lead Stages & Sources">
+          <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block font-semibold text-[#666]">Lead stages, one per line, in order.</span>
+              <textarea name="leadStages" rows={8} defaultValue={s.leadStages.join("\n")} required className="w-full rounded-[3px] border border-[#ccc] px-2 py-1" />
+            </label>
+            <label className="block">
+              <span className="mb-1 block font-semibold text-[#666]">Lead sources, one per line.</span>
+              <textarea name="leadSources" rows={8} defaultValue={s.leadSources.join("\n")} required className="w-full rounded-[3px] border border-[#ccc] px-2 py-1" />
+            </label>
+          </div>
+          <p className="mt-2 text-[#999]">Used on the New Lead form and in the lead workspace. Removing one keeps it on leads that already use it.</p>
         </Box>
         <Box title="Contact Sub Roles">
           <label className="block max-w-sm">

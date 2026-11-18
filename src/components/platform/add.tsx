@@ -13,6 +13,7 @@ import type { LenderChoice } from "@/server/lenders";
 import type { ChecklistItem } from "@/server/schema";
 import { useSession } from "next-auth/react";
 import type { Contact } from "./placeholder-data";
+import { NewLeadModal, NotSent, type Login } from "./new-lead";
 import { blueBtn, greenBtn, greyBtn, input, label, Modal } from "./ui";
 
 export type AddKind = "clientExperience" | "application" | "contact" | "lead";
@@ -194,7 +195,7 @@ function ApplicationModal({ close }: { close: () => void }) {
 }
 
 type Borrower = { firstName: string; lastName: string; email: string };
-type Invite = { status: string; error: string | null; login: { link: string; username: string; password: string | null; expires: string | null } | null };
+type Invite = { status: string; error: string | null; login: Login | null };
 const catalog = Object.values(documentCatalog);
 const choice = (on: boolean) => cn("flex-1 rounded-[3px] border p-3 text-left", on ? "border-[#428bca] bg-[#eaf2fa] text-[#2a6496]" : "border-[#ddd] hover:border-[#aaa]");
 
@@ -250,8 +251,6 @@ function ClientExperienceModal({ close }: { close: () => void }) {
 
   if (done) {
     const p = borrowers[primary];
-    const l = done.invite.login;
-    const text = l && `Sign in: ${l.link}\nUsername: ${l.username}\n` + (l.password ? `Temporary password: ${l.password}\nIt stops working on ${l.expires}. You'll choose your own password when you first sign in.` : "Password: the one you already use for this portal");
     return (
       <Modal title="CREATE A CLIENT EXPERIENCE" close={close} footer={<>
         <Link href={`/deal/${done.dealId}/clientPortal`} onClick={close} className={cn(blueBtn, "px-3 py-1.5 text-[12.6px]")}>Open client portal</Link>
@@ -259,15 +258,9 @@ function ClientExperienceModal({ close }: { close: () => void }) {
       </>}>
         <p className="mb-2 flex items-center gap-2 text-[#3c763d]"><Check className="size-5" /> Deal and client portal created for {p.firstName} {p.lastName}, with {docs.length} documents requested.</p>
         {done.invite.status === "sent" ? (
-          <p className="text-[12.6px] text-[#666]">The welcome email with their portal sign-in went to {p.email}.</p>
+          <p className="text-[12.6px] text-[#666]">The welcome email with their portal setup link went to {p.email}.</p>
         ) : (
-          <div role="status" className="rounded-[3px] border border-[#faebcc] bg-[#fcf8e3] p-3 text-[12.6px] text-[#8a6d3b]">
-            <p><strong>The welcome email was not sent.</strong> {done.invite.status === "not_configured" ? "Email sending isn't set up." : done.invite.error ?? "The email couldn't be sent."} Give them these sign-in details another way (they aren&apos;t shown again):</p>
-            {text && <>
-              <textarea readOnly rows={4} value={text} onFocus={(e) => e.target.select()} aria-label="Portal sign-in details" className={cn(input, "mt-2 h-auto font-mono")} />
-              <button onClick={() => navigator.clipboard?.writeText(text)} className={cn(blueBtn, "mt-2 px-3 py-1")}>Copy</button>
-            </>}
-          </div>
+          done.invite.login && <NotSent who={`${p.firstName} ${p.lastName}`} why={done.invite.status === "not_configured" ? "Email sending isn't set up." : done.invite.error ?? "The email couldn't be sent."} login={done.invite.login} />
         )}
       </Modal>
     );
@@ -393,5 +386,6 @@ function ClientExperienceModal({ close }: { close: () => void }) {
 export function AddModal({ kind, close }: { kind: AddKind; close: () => void }) {
   if (kind === "application") return <ApplicationModal close={close} />;
   if (kind === "clientExperience") return <ClientExperienceModal close={close} />;
-  return <ContactModal lead={kind === "lead"} close={close} />;
+  if (kind === "lead") return <NewLeadModal close={close} />;
+  return <ContactModal lead={false} close={close} />;
 }

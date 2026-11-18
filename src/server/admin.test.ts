@@ -14,7 +14,7 @@ import { slaDays } from "./reports.ts";
 import { auditLog, deals, tasks, users } from "./schema.ts";
 import { DEV_PASSWORD, seedIfEmpty } from "./seed.ts";
 import { createTask, dealReminders, reminderLevel } from "./tasks.ts";
-import { getActor, verifyLogin } from "./users.ts";
+import { clearFailures, getActor, locked, verifyLogin } from "./users.ts";
 
 let db: Db;
 const as: Record<string, Actor> = {};
@@ -63,6 +63,15 @@ test("users: validation, partial updates, and no password hash in the audit log"
 
   const logged = JSON.stringify(await db.select().from(auditLog).where(eq(auditLog.entityId, id)));
   assert.ok(!logged.includes("passwordHash") && !logged.includes("scrypt") && logged.includes('"password":"changed"'));
+});
+
+test("five wrong passwords lock the sign-in, even with the right password, until the window passes", async () => {
+  await newUser("lockme@keyway.test");
+  for (let i = 0; i < 5; i++) assert.equal(await verifyLogin(db, "lockme@keyway.test", "wrong-password"), null);
+  assert.equal(await verifyLogin(db, "lockme@keyway.test", PW), null, "locked");
+  assert.equal(await locked(db, "lockme@keyway.test", new Date(Date.now() + 16 * 60 * 1000)), false, "expires after 15 minutes");
+  await clearFailures(db, "lockme@keyway.test");
+  assert.ok(await verifyLogin(db, "lockme@keyway.test", PW));
 });
 
 test("deactivating a user locks them out and shows their deals under No Agent until reassigned", async () => {

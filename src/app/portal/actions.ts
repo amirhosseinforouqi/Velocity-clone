@@ -11,6 +11,7 @@ import {
   clientAddVersion, clientFinishUpload, clientMarkRead, clientReply, clientStartConversation, clientStartUpload, readClientNotifications, saveClientProfile,
   setOwnPassword, type ClientAccount,
 } from "@/server/portal-client";
+import { pendingInvitationEmail } from "@/server/portal";
 
 // Client-side actions. Every one re-loads the signed-in client and checks the deal through their own applicant record.
 type Result<T = undefined> = { error?: string; data?: T };
@@ -32,6 +33,19 @@ export async function clientLogin(form: FormData) {
     await signIn("client", { email: form.get("email"), password: form.get("password"), redirectTo: "/portal" });
   } catch (e) {
     if (e instanceof AuthError && e.type === "CredentialsSignin") redirect("/portal/login?error=1");
+    throw e;
+  }
+}
+
+// The one-time setup link from the welcome email: signs the client in with the code in the link, and the portal then
+// only lets them reach the choose-a-password page. A used, expired or revoked link gets the same plain message.
+export async function clientSetup(form: FormData) {
+  const email = await pendingInvitationEmail(await getDb(), String(form.get("i") ?? ""));
+  if (!email) redirect("/portal/setup?error=1");
+  try {
+    await signIn("client", { email, password: String(form.get("t") ?? ""), redirectTo: "/portal" });
+  } catch (e) {
+    if (e instanceof AuthError && e.type === "CredentialsSignin") redirect("/portal/setup?error=1");
     throw e;
   }
 }

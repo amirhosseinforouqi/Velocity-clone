@@ -57,6 +57,7 @@ export async function saveTemplate(db: Db, actor: Actor, kind: string, input: { 
 
 export async function resetTemplate(db: Db, actor: Actor, kind: string) {
   mustOrgAdmin(actor);
+  if (!(kind in templateKinds)) throw new ValidationError("Unknown template");
   await db.transaction(async (tx) => {
     await tx.delete(emailTemplates).where(and(eq(emailTemplates.organizationId, actor.organizationId), eq(emailTemplates.kind, kind)));
     await audit(tx, actor, "email_template", actor.organizationId, "reset", null, { kind });

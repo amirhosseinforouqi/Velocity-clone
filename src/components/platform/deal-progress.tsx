@@ -26,7 +26,7 @@ export function DealProgress() {
   const th = "border border-[#ddd] bg-[#f9f9f9] px-2 py-1.5 text-left font-semibold";
   const td = "border border-[#ddd] px-2 py-1.5 align-top";
 
-  if (!data.dealType) return <p className="text-[12.6px] text-[#999]">Set the Application Type on the Mortgage Requests tab to see this deal&apos;s progress steps.</p>;
+  if (!data.dealType) return <p className="text-[12.6px] text-[#999]">Set the Application Type on the Property &amp; Mortgage tab to see this deal&apos;s progress steps.</p>;
   return (
     <div className={cn("text-[12.6px]", busy && "opacity-70")}>
       {error && <p role="alert" className="mb-2 rounded-[3px] border border-[#ebccd1] bg-[#f2dede] px-3 py-2 text-[#a94442]">{error}</p>}

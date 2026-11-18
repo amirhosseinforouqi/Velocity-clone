@@ -3,10 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { requireActor } from "@/auth";
 import { Forbidden } from "@/server/access";
+import { getOrganization, isAdmin } from "@/server/admin";
 import { ValidationError } from "@/server/contacts";
+import { dealStaff } from "@/server/deals";
+import { emailConfigured } from "@/server/email";
 import { getDb } from "@/server/db";
 import {
-  addNote, assignDeal, cancelRequest, createClientExperience, finishUpload, inviteApplicant, readStaffNotifications, releaseFile, remindRequest, requestDocuments, resendInvitation,
+  addNote, assignDeal, cancelRequest, createClientExperience, createLead, invitationPreview, finishUpload, inviteApplicant, readStaffNotifications, releaseFile, remindRequest, requestDocuments, resendInvitation,
   revokeInvitation, reviewRequest, setPortalAccess, setStage, staffAddVersion, staffDeal, staffMarkRead, staffReply, startConversation, startUpload, topBarPortal,
 } from "@/server/portal";
 import { purgeDeal } from "@/server/portal-admin";
@@ -27,9 +30,26 @@ async function run<T>(fn: (c: Ctx) => Promise<T>, refresh = true): Promise<Resul
 }
 
 // An invitation's link only comes back when the email wasn't sent, so staff can share it another way.
-export const inviteAction = async (dealId: string, contactId: string) => run(({ db, actor }) => inviteApplicant(db, actor, dealId, contactId));
-export const clientExperienceAction = async (input: Record<string, unknown>) => run(({ db, actor }) => createClientExperience(db, actor, input));
-export const resendInviteAction = async (id: string) => run(({ db, actor }) => resendInvitation(db, actor, id));
+// The one-time code only ever travels inside the setup link, never as a separate password.
+const safe = (i: Awaited<ReturnType<typeof inviteApplicant>>) => ({ ...i, login: i.login && { link: i.login.link, username: i.login.username, expires: i.login.expires, existing: i.login.password === null } });
+export const inviteAction = async (dealId: string, contactId: string) => run(async ({ db, actor }) => safe(await inviteApplicant(db, actor, dealId, contactId)));
+export const clientExperienceAction = async (input: Record<string, unknown>) => run(async ({ db, actor }) => {
+  const r = await createClientExperience(db, actor, input);
+  return { dealId: r.dealId, invite: safe(r.invite) };
+});
+export const resendInviteAction = async (id: string) => run(async ({ db, actor }) => safe(await resendInvitation(db, actor, id)));
+
+// New Lead: what the form needs to offer, the lead itself, and the welcome email as staff will review it before confirming.
+export const leadFormAction = async () => run(async ({ db, actor }) => ({
+  me: actor.id, admin: isAdmin(actor), emailConfigured: emailConfigured(),
+  staff: (await dealStaff(db, actor, actor)).map((u) => ({ id: u.id, name: u.name })),
+  sources: (await getOrganization(db, actor.organizationId)).settings.leadSources,
+}), false);
+export const createLeadAction = async (input: Record<string, unknown>) => run(async ({ db, actor }) => {
+  const r = await createLead(db, actor, input);
+  return { dealId: r.dealId, invite: r.invite && safe(r.invite) };
+});
+export const invitationPreviewAction = async (firstName: string) => run(({ db, actor }) => invitationPreview(db, actor, firstName), false);
 export const revokeInviteAction = async (id: string) => run(({ db, actor }) => revokeInvitation(db, actor, id));
 export const portalAccessAction = async (dealId: string, contactId: string, on: boolean) => run(({ db, actor }) => setPortalAccess(db, actor, dealId, contactId, on));
 

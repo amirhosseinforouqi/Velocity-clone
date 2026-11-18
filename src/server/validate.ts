@@ -3,7 +3,7 @@
 import { sections } from "../components/platform/deal-sections.ts";
 import type { DealStatus } from "./deal-status.ts";
 import type { LenderChoice } from "./lenders.ts";
-import { dealMetrics, incomeKeys, keys, num, type Fields } from "./metrics.ts";
+import { dealMetrics, incomeKeys, keys, num, type Fields, type Qualification } from "./metrics.ts";
 
 export type Problem = { key: string; message: string };
 
@@ -41,7 +41,7 @@ export function validSin(v: string) {
 }
 
 // `lenders` are the deal agent's choices; leave it out to skip the lender checks.
-export function validateDeal(deal: { status: DealStatus; closingDate: string | null; fields: Fields }, lenders?: LenderChoice[], today = new Date().toISOString().slice(0, 10)) {
+export function validateDeal(deal: { status: DealStatus; closingDate: string | null; fields: Fields }, lenders?: LenderChoice[], today = new Date().toISOString().slice(0, 10), q?: Qualification) {
   const f = deal.fields;
   const out: Problem[] = [];
   const add = (key: string, message: string) => out.push({ key, message: `${sectionTitle(key)} › ${label(key)}: ${message}` });
@@ -71,7 +71,7 @@ export function validateDeal(deal: { status: DealStatus; closingDate: string | n
   if (lenders && !blank(LENDER) && !lender) add(LENDER, "not an active lender this deal's agent can submit to");
   if (lender && !blank(PRODUCT) && !lender.products.includes(f[PRODUCT]!)) add(PRODUCT, `not a product of ${lender.name}`);
   const LIMITS = limitsFor(lender);
-  const m = dealMetrics(f);
+  const m = dealMetrics(f, q);
   const insurer = "mortgageRequest/Mortgage Breakdown/Insurer";
   if (m.ltv !== null && m.ltv > LIMITS.ltv) add(keys.mortgages[0], `LTV is ${m.ltv.toFixed(2)}%, over the ${LIMITS.ltv}% maximum`);
   else if (m.ltv !== null && m.ltv > LIMITS.uninsuredLtv && blank(insurer)) add(insurer, `LTV is over ${LIMITS.uninsuredLtv}%, so mortgage insurance is required`);

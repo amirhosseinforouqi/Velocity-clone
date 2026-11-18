@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contractPayment, dealMetrics, monthlyPayment, num } from "./metrics.ts";
+import { contractPayment, dealMetrics, fileTotals, monthlyPayment, num } from "./metrics.ts";
 import { validateDeal, validSin } from "./validate.ts";
 
 const near = (a: number | null, b: number, msg?: string) => assert.ok(a !== null && Math.abs(a - b) < 0.01, `${msg ?? ""} ${a} != ${b}`);
@@ -21,6 +21,7 @@ test("payments match published amortization figures", () => {
   near(pay({ "Interest Rate": "0", Amortization: "", "Amortization Months": "10" }), 40_000, "months only");
   assert.equal(pay({ "Total Loan Amount": "" }), null, "falls back to mortgage totals, none here");
   assert.equal(pay({ Amortization: "" }), null);
+  near(contractPayment({ "mortgageRequest/Mortgage Breakdown/Purchase Price": "500000", "mortgageRequest/Mortgage Breakdown/Down Payment": "100000", [rp + "Interest Rate"]: "5", [rp + "Amortization"]: "25 Years" }), 2326.42, "price less down fallback");
   near(contractPayment({ "mortgageRequest/Mortgage Breakdown/1st Mortgage Total": "$400,000", [rp + "Interest Rate"]: "5", [rp + "Amortization"]: "25 Years" }), 2326.42, "1st mortgage fallback");
   assert.deepEqual([num("$4,200"), num("4.79%"), num("25 Years"), num(""), num("abc")], [4200, 4.79, 25, null, null]);
 });
@@ -97,4 +98,39 @@ test("a lender's own limits replace the defaults; unknown lenders and products a
   assert.match(problems("Sample Bank", "", { gds: 32, tds: 38 }), /GDS is 33\.00%, over the 32% limit.*TDS is 39\.00%, over the 38% limit/);
   assert.match(problems("Sample Bank", "", { ltv: 75 }), /LTV is 80\.00%, over the 75% maximum/);
   assert.equal(problems("Sample Bank", "", { gds: 45, tds: 50 }), "", "looser limits pass too");
+});
+
+test("ratios count co-applicant and other income, and listed liabilities", () => {
+  const m = dealMetrics({
+    ...deal,
+    "borrowers/Employment 2/Annual Income": "$60,000", // +5,000/month
+    "borrowers/Employment 3/Annual Income": "$90,000", "borrowers/Employment 3/Employment Status": "Previous", // a past job doesn't count
+    "borrowers/Other Income 1/Amount": "$1,000", "borrowers/Other Income 1/Income Period": "Monthly",
+    "assetsProperties/Liability 1/Liability Type": "Car Loan", "assetsProperties/Liability 1/Monthly Payment": "$400",
+    "assetsProperties/Liability 2/Liability Type": "Credit Card", "assetsProperties/Liability 2/Balance": "$10,000", // 3% = 300
+    "assetsProperties/Liability 3/Liability Type": "Personal Loan", "assetsProperties/Liability 3/Monthly Payment": "$900", "assetsProperties/Liability 3/Paid Off at Closing": "Yes",
+  });
+  near(m.parts.monthlyIncome, 16000);
+  near(m.parts.other, 1300);
+  near(m.gds, (3300 / 16000) * 100);
+  near(m.tds, (4600 / 16000) * 100);
+});
+
+test("the firm's qualifying defaults change the ratios", () => {
+  const f = { "mortgageRequest/Rates and Payments/Net Rate": "4", "assetsProperties/Liability 1/Liability Type": "Credit Card", "assetsProperties/Liability 1/Balance": "1000" };
+  assert.equal(dealMetrics(f).parts.qualifyingRate, 6);
+  assert.equal(dealMetrics(f, { stressBuffer: 1, rateFloor: 7, revolvingPct: 5 }).parts.qualifyingRate, 7);
+  assert.equal(dealMetrics(f, { stressBuffer: 1, rateFloor: 7, revolvingPct: 5 }).parts.other, 50);
+});
+
+test("totals add listed assets and liabilities", () => {
+  const t = fileTotals({ "assetsProperties/Asset 1/Value": "$80,000", "assetsProperties/Asset 2/Value": "5000", "assetsProperties/Liability 1/Balance": "12000", "assetsProperties/Property Totals/Mortgages": "3000" });
+  assert.deepEqual(t, { assets: 85000, liabilities: 15000, netWorth: 70000 });
+  assert.equal(fileTotals({}).netWorth, null);
+});
+
+test("the mortgage falls back to price less down payment", () => {
+  const m = dealMetrics({ "subjectProperty/Details/Purchase Price": "650000", "mortgageRequest/Mortgage Breakdown/Down Payment": "130000" });
+  assert.equal(m.parts.mortgage, 520000);
+  near(m.ltv, 80);
 });

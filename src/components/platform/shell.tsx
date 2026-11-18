@@ -15,7 +15,6 @@ import {
   CloudSun,
   Contact,
   FileChartLine,
-  FileCheck,
   FileText,
   Gauge,
   History,
@@ -70,15 +69,16 @@ const menuItems: MenuItem[] = [
       { label: "Lead", add: "lead" },
     ],
   },
-  { label: "Home", icon: House, href: "/" },
-  { label: "Dashboard", icon: Gauge, href: "/dashboard/deals" },
+  { label: "Dashboard", icon: House, href: "/" },
+  { label: "Pipeline", icon: Gauge, href: "/dashboard/deals" },
+  { label: "Messages", icon: Mail, href: "/messages" },
   {
-    label: "Contacts",
+    label: "CRM & Contacts",
     icon: Contact,
     expand: true,
     children: [{ label: "List", href: "/contacts" }, { label: "Merge Contacts", href: "/contacts/merge" }],
   },
-  { label: "My Day", icon: CloudSun, href: "/my-day" },
+  { label: "Tasks & My Day", icon: CloudSun, href: "/my-day" },
   {
     label: "Reports",
     icon: FileChartLine,
@@ -101,12 +101,6 @@ const menuItems: MenuItem[] = [
     icon: FileText,
     expand: true,
     children: [],
-  },
-  {
-    label: "Previous Deals",
-    icon: FileCheck,
-    expand: true,
-    children: [], // ponytail: recently opened deals are not tracked yet
   },
   { label: "Tools", icon: Wrench, expand: true, children: [{ label: "Importer", href: "/tools/importer" }] },
   { label: "Historical Deals", icon: History, href: "/deals/historical" },
@@ -260,7 +254,6 @@ function TopBar() {
             {meLinks.map(([t, h]) => h.startsWith("/")
               ? <Link key={t} href={h} onClick={() => setOpen(null)} className="block px-3 py-2 hover:bg-[#f5f5f5]">{t}</Link>
               : <a key={t} href={h} className="block px-3 py-2 hover:bg-[#f5f5f5]">{t}</a>)}
-            <p className="border-t border-[#eee] px-3 py-2 text-[#999]">Access: DEMO0001</p>
             <form action={logout}>
               <button className="block w-full border-t border-[#eee] px-3 py-2 text-left hover:bg-[#f5f5f5]">Log Out</button>
             </form>
@@ -275,9 +268,12 @@ function TopBar() {
 // Open by default on desktop, closed on mobile; `toggled` flips whichever default applies.
 function Sidebar({ toggled, onToggle, deal }: { toggled: boolean; onToggle: () => void; deal?: OpenDeal }) {
   const path = usePathname();
-  const menu = menuItems.flatMap((m) => m.label !== DEAL ? [m] : deal ? [{
+  const session = useSession().data?.user;
+  // Agents and assistants have no admin pages (the server 404s them); a session from before roles were stored still sees the menu.
+  const noAdmin = session?.role === "agent" || session?.role === "assistant";
+  const menu = menuItems.filter((m) => !(noAdmin && m.label === "Admin")).flatMap((m) => m.label !== DEAL ? [m] : deal ? [{
     ...m, label: `Deal: [${dealCode(deal.number)}]`,
-    children: [{ label: "Full Details", href: `/deal/${deal.id}` }, ...dealTabs.map((t) => ({ label: t.label, href: `/deal/${deal.id}/${t.slug}` }))],
+    children: dealTabs.map((t) => ({ label: t.label, href: `/deal/${deal.id}/${t.slug}` })),
   }] : []);
   const [adding, setAdding] = useState<AddKind | null>(null);
   const [expanded, setExpanded] = useState(
@@ -302,8 +298,11 @@ function Sidebar({ toggled, onToggle, deal }: { toggled: boolean; onToggle: () =
         <ChevronLeft className={cn("size-4", toggled ? "md:rotate-180" : "max-md:rotate-180")} />
       </button>
       <div className="flex items-center gap-[5px] px-[25px] pt-[22px] pb-[15px] text-sm font-semibold text-[#eee]">
-        <CircleUserRound className="size-5 stroke-[1.25]" /> {useSession().data?.user?.name}
+        <CircleUserRound className="size-5 stroke-[1.25]" /> {session?.name}
       </div>
+      <button onClick={() => setAdding("lead")} className="mx-[15px] mb-2 flex items-center justify-center gap-1.5 rounded-[3px] bg-[#428bca] py-2 text-[13px] font-semibold text-white hover:bg-[#3071a9]">
+        <CirclePlus className="size-4" /> New Lead
+      </button>
       <ul className="min-h-0 flex-1 overflow-y-auto text-[12.6px] text-[#a1a1a1]">
         {menu.map((m) => {
           const inner = (

@@ -1,4 +1,4 @@
-import { and, asc, eq, ilike } from "drizzle-orm";
+import { and, asc, eq, ilike, or, sql } from "drizzle-orm";
 import { contactScope, Forbidden, type Actor } from "./access.ts";
 import { isContactRole } from "./contact-roles.ts";
 import { audit } from "./audit.ts";
@@ -35,8 +35,20 @@ export function listContacts(db: Db, actor: Actor) {
 }
 
 // Name-prefix matches shown while adding a contact, so the user can open the existing one instead.
-export async function findDuplicates(db: Db, actor: Actor, first: string, last: string) {
+// With an email or phone (the New Lead form) it matches the full name, the same email, or the same phone digits.
+export async function findDuplicates(db: Db, actor: Actor, first: string, last: string, email = "", phone = "") {
   const like = (s: string) => s.trim().replace(/[\\%_]/g, "\\$&") + "%";
+  const mail = email.trim().toLowerCase(), digits = phone.replace(/\D/g, "");
+  if (mail || digits) {
+    const phoneIs = (c: typeof contacts.cellPhone | typeof contacts.homePhone | typeof contacts.workPhone) => sql`regexp_replace(coalesce(${c}, ''), '[^0-9]', '', 'g') = ${digits}`;
+    const any = [
+      first.trim() && last.trim() ? and(ilike(contacts.firstName, like(first)), ilike(contacts.lastName, like(last))) : undefined,
+      mail ? sql`lower(${contacts.email}) = ${mail}` : undefined,
+      ...(digits.length >= 10 ? [phoneIs(contacts.cellPhone), phoneIs(contacts.homePhone), phoneIs(contacts.workPhone)] : []),
+    ].filter((x) => x !== undefined);
+    if (!any.length) return [];
+    return (await db.select().from(contacts).where(and(contactScope(actor), or(...any))).limit(5)).map(contactView);
+  }
   if (!first.trim() && !last.trim()) return [];
   const rows = await db.select().from(contacts)
     .where(and(contactScope(actor), first.trim() ? ilike(contacts.firstName, like(first)) : undefined, last.trim() ? ilike(contacts.lastName, like(last)) : undefined))

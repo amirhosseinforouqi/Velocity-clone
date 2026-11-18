@@ -164,7 +164,13 @@ function GoogleSync() {
   );
 }
 
-export function AppCalendar({ view, cursor, today, days, tasks }: { view: CalendarView; cursor: string; today: string; days: string[]; tasks: TaskRow[] }) {
+type DealDate = { day: string; label: string; dealId: string; name: string };
+// A file's own date (closing, conditions, follow-up). Read-only here: it is changed in the file.
+function DateChip({ d }: { d: DealDate }) {
+  return <Link href={`/deal/${d.dealId}`} title={`${d.label}: ${d.name}. Open the file to change it.`} className="mb-px block w-full truncate rounded-[3px] border border-dashed border-[#2c3e50] bg-white px-1 text-left text-[11.5px] text-[#2c3e50] hover:bg-[#eef2f5]">{d.label}: {d.name}</Link>;
+}
+
+export function AppCalendar({ view, cursor, today, days, tasks, dates }: { view: CalendarView; cursor: string; today: string; days: string[]; tasks: TaskRow[]; dates: DealDate[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState("");
@@ -267,6 +273,7 @@ export function AppCalendar({ view, cursor, today, days, tasks }: { view: Calend
                         className={cn("h-[139px] min-w-0 border-t border-l border-[#ddd] p-0.5 [&:nth-child(-n+7)]:border-t-0 [&:nth-child(7n+1)]:border-l-0", day === today && "bg-[rgba(255,220,40,0.15)]")}
                       >
                         <div className={cn("p-1 text-right text-[#428bca]", day.slice(0, 7) !== cursor.slice(0, 7) && "opacity-50")}>{Number(day.slice(8))}</div>
+                        {dates.filter((x) => x.day === day).slice(0, 2).map((x) => <DateChip key={x.dealId + x.label} d={x} />)}
                         {list.slice(0, 3).map((t) => <Chip key={t.id} t={t} onOpen={() => setEditing(t.id)} />)}
                         {list.length > 3 && (
                           <button onClick={() => go("day", day)} className="px-1 text-[11.5px] text-[#428bca] hover:underline">+{list.length - 3} more</button>
@@ -281,6 +288,7 @@ export function AppCalendar({ view, cursor, today, days, tasks }: { view: Calend
                     <span className="absolute top-0 left-0 w-[50px] px-1 py-1 text-[11px] text-[#666]">all-day</span>
                     {days.map((d) => (
                       <div key={d} onDragOver={over} onDrop={drop(d)} className={cn("min-h-[30px] min-w-0 border-l border-[#ddd] p-0.5", d === today && "bg-[rgba(255,220,40,0.15)]")}>
+                        {dates.filter((x) => x.day === d).map((x) => <DateChip key={x.dealId + x.label} d={x} />)}
                         {on(d).filter((t) => !t.dueTime).map((t) => <Chip key={t.id} t={t} onOpen={() => setEditing(t.id)} />)}
                       </div>
                     ))}

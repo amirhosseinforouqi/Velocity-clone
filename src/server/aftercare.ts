@@ -56,7 +56,7 @@ export async function saveAftercare(db: Db, actor: Actor, dealId: string, id: st
 
 // Counts the touch and moves Next Date on one period. A one-off item (period 0) or one that reached Max Times turns off.
 export async function aftercareDone(db: Db, actor: Actor, id: string, now: string) {
-  const [item] = await db.select().from(aftercare).where(and(eq(aftercare.id, id), eq(aftercare.organizationId, actor.organizationId)));
+  const [item] = /^[0-9a-f-]{36}$/i.test(id) ? await db.select().from(aftercare).where(and(eq(aftercare.id, id), eq(aftercare.organizationId, actor.organizationId))) : [];
   if (!item) throw new Forbidden("After care item not found");
   await mustSee(db, actor, item.dealId);
   if (!item.active) throw new ValidationError(`"${item.label}" is turned off`);

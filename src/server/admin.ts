@@ -10,6 +10,8 @@ import { audit } from "./audit.ts";
 import { ValidationError } from "./contacts.ts";
 import type { Db } from "./db.ts";
 import type { DealStatus } from "./deal-status.ts";
+import { defaultLeadSources, defaultLeadStages } from "./doc-rules.ts";
+import { defaultQualification } from "./metrics.ts";
 import { hashPassword } from "./password.ts";
 import { auditLog, clients, conditionTemplates, consentTemplates, contacts, deals, offices, organizations, role, tasks, users, type OrgSettings } from "./schema.ts";
 
@@ -29,7 +31,7 @@ export function mustOrgAdmin(actor: Actor) {
 }
 
 export function text(v: unknown, label: string, max = 200, required = true) {
-  const s = typeof v === "string" ? v.trim() : "";
+  const s = typeof v === "string" ? v.replaceAll("\0", "").trim() : ""; // Postgres rejects NUL bytes in text
   if (required && !s) throw new ValidationError(`${label} is required`);
   if (s.length > max) throw new ValidationError(`${label} is too long`);
   return s;
@@ -202,7 +204,10 @@ export const defaultSettings: OrgSettings = {
     "General", "Admin", "Follow Up", "Urgent", "Advisor Comment", "Customer Phone Call", "Customer Correspondence", "Lender Correspondence",
     "Appraiser Correspondence", "Legal Phone Call", "Submission Notes",
   ],
+  leadStages: defaultLeadStages,
+  leadSources: defaultLeadSources,
   contactSubRoles: [],
+  qualification: defaultQualification,
   features: ["Enable eSign", "Enable My Day", "Enable Global Search", "Enable Importer", "Enable Pipeline Report", "Enable Report Creator", "Enable Deal Close Out", "Enable Scenario Builder - Calculators"],
 };
 export const slaStatuses: DealStatus[] = ["approved", "accepted", "waiting_to_close"];
@@ -210,7 +215,7 @@ export const slaStatuses: DealStatus[] = ["approved", "accepted", "waiting_to_cl
 export async function getOrganization(db: Db, organizationId: string) {
   const [o] = await db.select().from(organizations).where(eq(organizations.id, organizationId));
   const s = o.settings;
-  return { id: o.id, name: o.name, settings: { sla: { ...defaultSettings.sla, ...s.sla }, reminders: { ...defaultSettings.reminders, ...s.reminders }, features: s.features ?? defaultSettings.features, noteCategories: s.noteCategories ?? defaultSettings.noteCategories, contactSubRoles: s.contactSubRoles ?? [] } };
+  return { id: o.id, name: o.name, settings: { sla: { ...defaultSettings.sla, ...s.sla }, reminders: { ...defaultSettings.reminders, ...s.reminders }, features: s.features ?? defaultSettings.features, noteCategories: s.noteCategories ?? defaultSettings.noteCategories, leadStages: s.leadStages ?? defaultLeadStages, leadSources: s.leadSources ?? defaultLeadSources, contactSubRoles: s.contactSubRoles ?? [], qualification: { ...defaultQualification, ...s.qualification } } };
 }
 
 const days = (v: unknown, label: string) => {
@@ -220,10 +225,10 @@ const days = (v: unknown, label: string) => {
 };
 
 // One category per line; blanks and repeats dropped.
-function categories(v: unknown) {
+function categories(v: unknown, what = "note category", plural = "note categories") {
   const list = [...new Set(String(v ?? "").split("\n").map((c) => c.trim()).filter(Boolean))];
-  if (!list.length) throw new ValidationError("Add at least one note category");
-  if (list.length > 50 || list.some((c) => c.length > 50)) throw new ValidationError("Up to 50 note categories of up to 50 characters each");
+  if (!list.length) throw new ValidationError(`Add at least one ${what}`);
+  if (list.length > 50 || list.some((c) => c.length > 50)) throw new ValidationError(`Up to 50 ${plural} of up to 50 characters each`);
   return list;
 }
 
@@ -242,7 +247,7 @@ function subRoles(v: unknown) {
 }
 
 // noteCategories or contactSubRoles omitted keeps the saved list.
-export async function saveOrganization(db: Db, actor: Actor, input: { name: unknown; sla: Record<string, unknown>; reminders: Record<string, unknown>; features: unknown[]; noteCategories?: unknown; contactSubRoles?: unknown }) {
+export async function saveOrganization(db: Db, actor: Actor, input: { name: unknown; sla: Record<string, unknown>; reminders: Record<string, unknown>; features: unknown[]; noteCategories?: unknown; leadStages?: unknown; leadSources?: unknown; contactSubRoles?: unknown; qualification?: Record<string, unknown> }) {
   mustOrgAdmin(actor);
   const name = text(input.name, "Name", 100);
   const sla = Object.fromEntries(slaStatuses.map((s) => [s, days(input.sla[s], "SLA days")]));
@@ -252,7 +257,18 @@ export async function saveOrganization(db: Db, actor: Actor, input: { name: unkn
   const before = await getOrganization(db, actor.organizationId);
   const noteCategories = input.noteCategories === undefined ? before.settings.noteCategories : categories(input.noteCategories);
   const contactSubRoles = input.contactSubRoles === undefined ? before.settings.contactSubRoles : subRoles(input.contactSubRoles);
-  const settings = { sla, reminders: r, features, noteCategories, contactSubRoles };
+  // Removing a stage or source keeps it on leads that already use it.
+  const leadStages = input.leadStages === undefined ? before.settings.leadStages : categories(input.leadStages, "lead stage", "lead stages");
+  const leadSources = input.leadSources === undefined ? before.settings.leadSources : categories(input.leadSources, "lead source", "lead sources");
+  const pct = (v: unknown, label: string, max: number) => {
+    const n = Number(v);
+    if (v === "" || v == null || !Number.isFinite(n) || n < 0 || n > max) throw new ValidationError(`${label} must be a number from 0 to ${max}`);
+    return n;
+  };
+  const qi = input.qualification;
+  const qualification = qi === undefined ? before.settings.qualification
+    : { stressBuffer: pct(qi.stressBuffer, "Stress-test buffer", 10), rateFloor: pct(qi.rateFloor, "Qualifying rate floor", 25), revolvingPct: pct(qi.revolvingPct, "Revolving debt percent", 100) };
+  const settings = { sla, reminders: r, features, noteCategories, leadStages, leadSources, contactSubRoles, qualification };
   await db.transaction(async (tx) => {
     await tx.update(organizations).set({ name, settings }).where(eq(organizations.id, actor.organizationId));
     await audit(tx, actor, "organization", actor.organizationId, "update", { name: before.name, settings: before.settings }, { name, settings });

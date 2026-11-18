@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireActor } from "@/auth";
 import { Forbidden } from "@/server/access";
 import { aftercareDone, saveAftercare, type AftercareInput } from "@/server/aftercare";
+import { getOrganization } from "@/server/admin";
 import { saveAmlAssessment, setCompliance } from "@/server/compliance";
 import { addCondition, removeDocument, setConditionStatus, uploadDocument } from "@/server/conditions";
 import { createContact, setCasl, ValidationError } from "@/server/contacts";
@@ -60,7 +61,7 @@ export async function saveDealAction(id: string, _prev: unknown, form: FormData)
   let saved: Awaited<ReturnType<typeof saveDeal>> | undefined;
   const r = await run(async () => void (saved = await saveDeal(await getDb(), await requireActor(), id, formObject(form))));
   if (!saved || form.get("intent") !== "validate") return r;
-  return { ...r, problems: validateDeal(saved, await lenderChoices(await getDb(), saved.organizationId, saved.agentId)) };
+  return { ...r, problems: validateDeal(saved, await lenderChoices(await getDb(), saved.organizationId, saved.agentId), undefined, (await getOrganization(await getDb(), saved.organizationId)).settings.qualification) };
 }
 
 export async function moveDealAction(id: string, to: DealStatus) {

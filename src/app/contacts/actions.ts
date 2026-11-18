@@ -52,6 +52,6 @@ export async function archiveContactAction(id: string) {
   redirect("/contacts");
 }
 
-export async function findDuplicatesAction(first: string, last: string) {
-  return findDuplicates(await getDb(), await requireActor(), first, last);
+export async function findDuplicatesAction(first: string, last: string, email = "", phone = "") {
+  return findDuplicates(await getDb(), await requireActor(), first, last, email, phone);
 }

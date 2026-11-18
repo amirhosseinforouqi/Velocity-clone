@@ -113,6 +113,13 @@
       "when": 1793632890944,
       "tag": "0015_saved_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794769354289,
+      "tag": "0016_login_failures",
+      "breakpoints": true
     }
   ]
 }

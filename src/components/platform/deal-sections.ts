@@ -8,6 +8,7 @@ export type Group = {
   rows?: string[][];
   buttons?: string[];
   blank?: boolean; // ignore placeholder values (fields repeat labels used elsewhere)
+  repeat?: string; // one of a numbered family ("Asset 1", "Asset 2"…): shown only once filled or added, with Add / Remove
   custom?: "conditions" | "reminders" | "tasks" | "compliance" | "contacts" | "referrals" | "progress" | "aftercare"; // rendered by its own component instead of cols/rows
 };
 export type Section = { id: string; title: string; groups: Group[] };
@@ -22,10 +23,26 @@ const mortgage = (n: number): Group => ({
   ],
 });
 
+// Numbered groups keep the flat "section/group/label" storage: each entry is its own group, so saveDeal needs no changes.
+// ponytail: fixed maximum per family; move to real child tables if a file ever needs more entries than this.
+const repeat = (family: string, count: number, fields: string[], from = 1): Group[] =>
+  Array.from({ length: count }, (_, i) => ({ title: `${family} ${i + from}`, repeat: family, blank: true, fields }));
+
+const applicantFields = [
+  "Applicant Type|select", "Relationship to Primary|select", "Salutation|select", "First Name", "Middle Name", "Last Name", "Preferred Name",
+  "Email", "Cell Phone", "Home Phone", "Work Phone", "DOB|date", "SIN", "Marital Status|select", "Dependents", "Residency|select",
+  "Current Address|area", "Time at Address", "Residential Status|select", "Previous Address|area", "ID Type|select", "ID Number", "ID Expiry|date",
+];
+const employmentFields = [
+  "Applicant Name", "Employment Category|select", "Employment Status|select", "Company Name", "Job Title", "Job Type|select", "Start Date|date",
+  "End Date|date", "Income Type|select", "Annual Income", "Years in Business", "Employer Phone", "Employer Address|area",
+];
+
 const rentals = ["Rental Income", "Rental Income Options|select", "Rental Add/Offset|select"];
 const expenses = ["Hydro", "Heating Cost", "Management", "Repairs", "Insurance", "Interest", "Other"];
 
 export const sections: Section[] = [
+  { id: "lead", title: "Lead", groups: [{ fields: ["Lead Stage|select", "Lead Source|select", "Tags", "Next Step", "Lost Reason"] }] },
   { id: "reminders", title: "Reminders", groups: [{ custom: "reminders" }] },
   { id: "tasks", title: "Deal Specific Tasks", groups: [{ custom: "tasks" }] },
   { id: "progress", title: "Progress", groups: [{ custom: "progress" }] },
@@ -36,7 +53,9 @@ export const sections: Section[] = [
     id: "assetsProperties",
     title: "Assets & Properties",
     groups: [
-      { title: "Totals", fields: ["Total Assets", "Total Liabilities", "Net Worth"] },
+      { title: "Totals", fields: ["Total Assets|calc", "Total Liabilities|calc", "Net Worth|calc"] },
+      ...repeat("Asset", 8, ["Asset Type|select", "Description", "Institution", "Value", "Used for Down Payment|check"]),
+      ...repeat("Liability", 10, ["Liability Type|select", "Lender / Creditor", "Credit Limit", "Balance", "Monthly Payment", "Maturity Date|date", "Paid Off at Closing|check"]),
       {
         title: "Property",
         blank: true,
@@ -118,6 +137,13 @@ export const sections: Section[] = [
           "MPP Insurance Payment", "Other Insurance", "Total Payment",
         ],
       },
+      {
+        title: "Business Loan",
+        fields: [
+          "Legal Business Name", "Operating Name", "Registration #", "Industry", "Ownership Structure|select", "Years Operating", "Requested Financing",
+          "Annual Revenue", "Average Monthly Bank Deposits", "Existing Business Debts", "Business Address|area", "Purpose of Financing|area",
+        ],
+      },
       { title: "Lenders", cols: ["Lender", "Product", "Application Type", "Loan Type", "Rate Type", "Term", "Net Rate", "Submitted", "Approved"] },
       {
         title: "Lender Submission",
@@ -136,8 +162,12 @@ export const sections: Section[] = [
         fields: [
           "Applicant Type|select", "Relationship to Primary|select", "Salutation|select", "First Name", "Initial", "Last Name",
           "Suffix|select", "Email", "Home Phone", "Cell Phone", "Work Phone", "Fax", "Contact Preference|select", "DOB|date", "SIN",
-          "Language|select", "Marital Status|select", "Spouse|select", "Dependents",
+          "Language|select", "Marital Status|select", "Spouse|select", "Dependents", "Middle Name", "Preferred Name",
         ],
+      },
+      {
+        title: "Address & Identification",
+        fields: ["Current Address|area", "Time at Address", "Residential Status|select", "Previous Address|area", "ID Type|select", "ID Number", "ID Expiry|date"],
       },
       {
         title: "Residency",
@@ -149,14 +179,16 @@ export const sections: Section[] = [
       {
         title: "Employment",
         fields: [
-          "Employment Status|select", "Company Name", "Self Employed|check", "Company Type|select", "Operating As", "Gross Revenue",
+          "Employment Category|select", "Employment Status|select", "Company Name", "Start Date|date", "Self Employed|check", "Company Type|select", "Operating As", "Gross Revenue",
           "Pays Self|select", "T4", "Business Income", "Dividends", "Commission", "Job Title", "Job Type|select", "Time Worked",
           "Employment Type|select", "Industry Sector|select", "Income Type|select", "Income Period|select", "Receives Benefits|check",
           "Includes Variable Income|check", "Additional Income|select", "Additional Income Amount", "Time in Industry", "Employer Phone",
           "Employer Address|area",
         ],
       },
-      { title: "Other Income", cols: ["Type", "Description", "Amount", "Period"] },
+      ...repeat("Employment", 3, employmentFields, 2),
+      ...repeat("Other Income", 4, ["Other Income Type|select", "Description", "Amount", "Income Period|select"]),
+      ...repeat("Applicant", 3, applicantFields, 2),
     ],
   },
   { id: "emailHistory", title: "System Email History", groups: [{ cols: ["Date Sent", "Subject", "Sender", "Recipient"] }] },
@@ -186,21 +218,26 @@ export const sections: Section[] = [
   },
 ];
 
-export const dealTabs = [
-  { slug: "borrowers", label: "Borrowers", sections: ["borrowers"] },
-  { slug: "assetsProperties", label: "Assets & Properties", sections: ["assetsProperties"] },
-  { slug: "communicationHistory", label: "Communication History", sections: ["pinnedNotes", "notes", "emailHistory"] },
-  { slug: "conditionsAndDocuments", label: "Conditions & Documents", sections: ["conditions"] },
-  { slug: "insurance", label: "Insurance", sections: ["insurance"] },
-  { slug: "mortgageRequests", label: "Mortgage Requests", sections: ["subjectProperty", "mortgageRequest"] },
-  { slug: "referrals", label: "Referrals", sections: ["referral"] },
-  { slug: "contacts", label: "Deal Contacts", sections: ["dealContacts"] },
-  { slug: "remindersAndTasks", label: "Reminders & Tasks", sections: ["reminders", "tasks"] },
-  { slug: "progress", label: "Progress", sections: ["progress"] },
-  { slug: "aftercare", label: "After Care", sections: ["aftercare"] },
-  { slug: "activity", label: "Activity", sections: [] as string[] },
-  { slug: "clientPortal", label: "Client Portal", sections: [] as string[] },
+// The workspace's tabs, in the order an application is worked. A part is a section, optionally only some of its groups.
+type Part = { section: string; title?: string; only?: (g: Group) => boolean };
+const isIncome = (g: Group) => /^(Employment|Other Income)/.test(g.title ?? "");
+export const dealTabs: { slug: string; label: string; parts: Part[] }[] = [
+  { slug: "client", label: "Client & Applicants", parts: [{ section: "lead", title: "Lead & CRM" }, { section: "borrowers", title: "Applicants", only: (g) => !isIncome(g) }, { section: "referral" }, { section: "dealContacts" }] },
+  { slug: "income", label: "Employment & Income", parts: [{ section: "borrowers", title: "Employment & Income", only: isIncome }] },
+  { slug: "assets", label: "Assets & Liabilities", parts: [{ section: "assetsProperties", title: "Assets, Liabilities & Other Properties" }] },
+  { slug: "property", label: "Property & Mortgage", parts: [{ section: "subjectProperty" }, { section: "mortgageRequest" }, { section: "insurance" }] },
+  { slug: "documents", label: "Documents", parts: [{ section: "conditions", title: "Lender Conditions & Compliance" }] },
+  { slug: "messages", label: "Messages", parts: [] },
+  { slug: "lender", label: "Lender & Stage", parts: [{ section: "progress" }, { section: "closeOut" }, { section: "aftercare" }] },
+  { slug: "tasks", label: "Tasks & Follow-ups", parts: [{ section: "reminders" }, { section: "tasks" }] },
+  { slug: "activity", label: "Activity History", parts: [] },
 ];
+// Addresses from before the redesign still open the matching tab.
+export const legacyTabs: Record<string, string> = {
+  borrowers: "client", assetsProperties: "assets", communicationHistory: "messages", conditionsAndDocuments: "documents", conditions: "documents",
+  insurance: "property", mortgageRequests: "property", referrals: "client", contacts: "client", remindersAndTasks: "tasks", progress: "lender",
+  aftercare: "lender", clientPortal: "messages",
+};
 
 // Storage key for one workspace field: "section/group/label". Groups repeat labels, so the label alone isn't unique.
 export const fieldKey = (s: { id: string }, g: Group, spec: string) => `${s.id}/${g.title ?? ""}/${spec.split("|")[0]}`;
@@ -219,6 +256,13 @@ export const selectOptions: Record<string, string[]> = {
   "Marital Status": ["Single", "Married", "Common Law", "Separated", "Divorced", "Widowed"],
   Residency: ["Canadian Citizen", "Permanent Resident", "Work Permit", "Non-Resident"],
   "Employment Status": ["Current", "Previous"],
+  "Employment Category": ["Employed", "Self-employed", "Independent contractor", "Retired", "Other"],
+  "Other Income Type": ["Rental", "Pension", "Child / Spousal Support", "Investment", "Government Benefits", "Other"],
+  "Asset Type": ["Chequing", "Savings", "Investments", "RRSP", "TFSA", "Real Estate", "Vehicle", "Gift", "Other"],
+  "Liability Type": ["Credit Card", "Line of Credit", "Personal Loan", "Car Loan", "Car Lease", "Student Loan", "Mortgage", "Other"],
+  "Residential Status": ["Own", "Rent", "Live with Parents", "Other"],
+  "ID Type": ["Driver's Licence", "Passport", "PR Card", "Citizenship Card", "Other"],
+  "Ownership Structure": ["Sole Proprietorship", "Partnership", "Corporation", "Other"],
   "Job Type": ["Full Time", "Part Time", "Seasonal", "Contract"],
   "Employment Type": ["Salaried", "Hourly", "Commissioned", "Self-Employed"],
   "Income Type": ["Salary", "Hourly", "Commission", "Bonus", "Self-Employed"],

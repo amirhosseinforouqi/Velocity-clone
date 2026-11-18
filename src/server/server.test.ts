@@ -319,3 +319,18 @@ test("duplicate copies borrowers, contacts and fields into a fresh deal the same
   assert.deepEqual((await listDealContacts(db, as.agent, copy.id)).map((c) => [c.contactId, c.role]), [[lawyer.id, "Lawyer"]]);
   assert.ok((await dealActivity(db, as.agent, d.id)).some((r) => r.action === "duplicate" && r.detail === dealCode(copy.number).replace("KW-", "Copied to KW-")));
 });
+
+test("SIN: validated, encrypted at rest, masked on the way out and absent from the audit trail", async () => {
+  process.env.AUTH_SECRET ??= "test-only";
+  const { maskSins } = await import("./deals.ts");
+  const K = "borrowers/Applicant/SIN";
+  const d = await newDeal(as.agent);
+  await assert.rejects(saveDeal(db, as.agent, d.id, { [K]: "12345" }), /9 digits/);
+  const row = await saveDeal(db, as.agent, d.id, { [K]: "046 454 286" });
+  assert.ok(row.fields[K].startsWith("enc:") && !row.fields[K].includes("286"));
+  assert.equal(maskSins(row.fields)[K], "•••-•••-286");
+  const again = await saveDeal(db, as.agent, d.id, { [K]: "•••-•••-286" }); // the mask coming back changes nothing
+  assert.equal(again.fields[K], row.fields[K]);
+  const logs = JSON.stringify(await db.select().from(auditLog));
+  assert.ok(!logs.includes("046454286") && !logs.includes("046 454 286"));
+});

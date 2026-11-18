@@ -62,7 +62,10 @@ export async function saveOrganizationAction(_prev: Result | null, form: FormDat
     reminders: { urgent: f["reminders.urgent"], warning: f["reminders.warning"], notice: f["reminders.notice"] },
     features: form.getAll("features"),
     noteCategories: f.noteCategories,
+    leadStages: f.leadStages,
+    leadSources: f.leadSources,
     contactSubRoles: f.contactSubRoles,
+    qualification: { stressBuffer: f["qualification.stressBuffer"], rateFloor: f["qualification.rateFloor"], revolvingPct: f["qualification.revolvingPct"] },
   }));
 }
 

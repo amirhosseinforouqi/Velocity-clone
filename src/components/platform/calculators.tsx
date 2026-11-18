@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { monthlyPayment } from "@/server/metrics";
+import { monthlyPayment, num } from "@/server/metrics";
 import { money } from "./shell";
 import { greyBtn, input, label, Modal } from "./ui";
 
@@ -24,6 +24,24 @@ export function cmhcRate(downPct: number) {
 
 const cents = (n: number) => "$" + n.toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// When a file is open, the calculators start from its saved-or-typed figures instead of generic defaults.
+// ponytail: reads the open workspace form from the page; pass the deal down as props if calculators ever open elsewhere.
+function fromFile() {
+  const v = (name: string) => (typeof document === "undefined" ? null : num((document.querySelector<HTMLInputElement | HTMLSelectElement>(`#deal-form [name="${name}"]:not([type=hidden])`))?.value));
+  const mr = "mortgageRequest/", sp = "subjectProperty/Details/";
+  const price = v(sp + "Purchase Price") ?? v(mr + "Mortgage Breakdown/Purchase Price");
+  const downAmt = v(mr + "Mortgage Breakdown/Down Payment");
+  const amount = v(mr + "Rates and Payments/Total Loan Amount") ?? (price && downAmt !== null && downAmt < price ? price - downAmt : null);
+  return {
+    filled: price !== null || amount !== null,
+    price: price ?? 750_000,
+    amount: amount ?? 500_000,
+    down: price && downAmt !== null ? Math.round((downAmt / price) * 1000) / 10 : 10,
+    rate: v(mr + "Rates and Payments/Net Rate") ?? v(mr + "Rates and Payments/Interest Rate") ?? 4.99,
+    years: v(mr + "Rates and Payments/Amortization") ?? 25,
+  };
+}
+
 function Num({ name, value, set, step }: { name: string; value: number; set: (n: number) => void; step?: number }) {
   return (
     <label className="block">
@@ -44,9 +62,10 @@ function Out({ rows }: { rows: [string, string][] }) {
 }
 
 function Mortgage() {
-  const [amount, setAmount] = useState(500_000);
-  const [rate, setRate] = useState(4.99);
-  const [years, setYears] = useState(25);
+  const [d] = useState(fromFile);
+  const [amount, setAmount] = useState(d.amount);
+  const [rate, setRate] = useState(d.rate);
+  const [years, setYears] = useState(d.years);
   const pay = monthlyPayment(amount, rate, years);
   return <>
     <div className="grid gap-3 sm:grid-cols-3"><Num name="Mortgage Amount" value={amount} set={setAmount} /><Num name="Interest Rate (%)" value={rate} set={setRate} step={0.01} /><Num name="Amortization (years)" value={years} set={setYears} /></div>
@@ -55,10 +74,11 @@ function Mortgage() {
 }
 
 function Purchase() {
-  const [price, setPrice] = useState(750_000);
-  const [down, setDown] = useState(10);
-  const [rate, setRate] = useState(4.99);
-  const [years, setYears] = useState(25);
+  const [d] = useState(fromFile);
+  const [price, setPrice] = useState(d.price);
+  const [down, setDown] = useState(d.down);
+  const [rate, setRate] = useState(d.rate);
+  const [years, setYears] = useState(d.years);
   const base = price * (1 - down / 100);
   const premium = base * cmhcRate(down);
   return <>
@@ -69,7 +89,7 @@ function Purchase() {
 }
 
 function Closing() {
-  const [price, setPrice] = useState(750_000);
+  const [price, setPrice] = useState(() => fromFile().price);
   const [legal, setLegal] = useState(1_500);
   const [title, setTitle] = useState(350);
   const [inspection, setInspection] = useState(500);
@@ -82,7 +102,7 @@ function Closing() {
 }
 
 function LandTransfer() {
-  const [price, setPrice] = useState(750_000);
+  const [price, setPrice] = useState(() => fromFile().price);
   const [toronto, setToronto] = useState(false);
   const [firstTime, setFirstTime] = useState(false);
   // ponytail: Toronto's municipal tax mirrors the provincial brackets below $3M; luxury tiers above that are not modelled.
@@ -97,7 +117,7 @@ function LandTransfer() {
 }
 
 function Scenarios() {
-  const [rows, setRows] = useState([{ amount: 500_000, rate: 4.79, years: 25 }, { amount: 500_000, rate: 5.19, years: 30 }]);
+  const [rows, setRows] = useState(() => { const d = fromFile(); return d.filled ? [{ amount: d.amount, rate: d.rate, years: d.years }, { amount: d.amount, rate: d.rate, years: 30 }] : [{ amount: 500_000, rate: 4.79, years: 25 }, { amount: 500_000, rate: 5.19, years: 30 }]; });
   const set = (i: number, k: "amount" | "rate" | "years", v: number) => setRows(rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
   return <>
     <div className="grid gap-3 sm:grid-cols-3">
@@ -128,5 +148,5 @@ const bodies: Record<CalcKind, () => ReactNode> = {
 
 export function CalculatorModal({ kind, close }: { kind: CalcKind; close: () => void }) {
   const Body = bodies[kind];
-  return <Modal title={kind} close={close} wide={kind === "Scenario Builder"} footer={<button onClick={close} className={cn(greyBtn, "px-3 py-1.5 text-[12.6px]")}>Close</button>}><Body /></Modal>;
+  return <Modal title={kind} close={close} wide={kind === "Scenario Builder"} footer={<button onClick={close} className={cn(greyBtn, "px-3 py-1.5 text-[12.6px]")}>Close</button>}>{fromFile().filled && <p className="mb-3 text-[12px] text-[#666]">Started from this file&apos;s figures. Changes here don&apos;t alter the file.</p>}<Body /></Modal>;
 }

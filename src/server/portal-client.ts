@@ -48,17 +48,17 @@ export async function setOwnPassword(db: Db, account: ClientAccount, password: s
 
 export async function verifyClientLogin(db: Db, rawEmail: string, password: string) {
   const email = rawEmail.trim().toLowerCase();
-  if (locked(`c:${email}`)) return null;
+  if (email.includes("\0") || (await locked(db, `c:${email}`))) return null; // Postgres rejects NUL bytes
   // The same email can have more than one login (set up twice as separate contacts), so try each.
   // An unused temporary password stops working at its expiry; the client asks their team for a new invitation.
   const rows = await db.select().from(clients).where(and(eq(clients.email, email), isNotNull(clients.accountId), isNull(clients.disabledAt)));
   let c: (typeof rows)[number] | undefined;
   for (const r of rows) if ((!r.passwordExpiresAt || r.passwordExpiresAt > new Date()) && (await checkPassword(password, r.passwordHash))) { c = r; break; }
   if (!c) {
-    recordFailure(`c:${email}`);
+    await recordFailure(db, `c:${email}`);
     return null;
   }
-  clearFailures(`c:${email}`);
+  await clearFailures(db, `c:${email}`);
   await db.update(clients).set({ lastSignInAt: new Date() }).where(eq(clients.accountId, c.accountId!));
   return { id: c.accountId!, email, name: email, kind: "client" as const };
 }
@@ -126,6 +126,7 @@ export async function clientDeal(db: Db, account: ClientAccount, dealId: string)
     : [];
   const outstanding = requests.filter((r) => r.status === "requested" || r.status === "replacement_required").length;
   const stage = current >= 0 ? stages[current] : null;
+  const [{ applicants }] = await db.select({ applicants: count() }).from(dealBorrowers).where(eq(dealBorrowers.dealId, dealId));
   return {
     clientId: client.id, contactId: client.contactId, firm: org.name, code: dealCode(deal.number), purpose: deal.purpose,
     stages: stages.map((s, i) => ({ id: s.id, label: s.label, state: current < 0 ? "upcoming" : i < current ? "done" : i === current ? "current" : "upcoming" })),
@@ -135,7 +136,7 @@ export async function clientDeal(db: Db, account: ClientAccount, dealId: string)
     updates,
     requests: requests.map((r) => ({
       id: r.id, name: r.name, category: r.category, description: r.description, status: r.status, replacementReason: r.replacementReason, dueDate: r.dueDate,
-      shared: !r.applicantContactId,
+      shared: !r.applicantContactId && applicants > 1, // only worth saying when there is a co-applicant
       canUpload: r.status === "requested" || r.status === "uploaded" || r.status === "replacement_required",
       versions: versions.filter((v) => v.v.requestId === r.id).map((v) => ({ version: v.v.version, fileId: v.f.id, fileName: v.f.fileName, size: v.f.size, scan: v.f.scanStatus, at: v.v.createdAt, purged: !!v.f.purgedAt })),
     })),

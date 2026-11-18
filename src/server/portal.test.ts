@@ -9,7 +9,7 @@ import { after, before, test } from "node:test";
 import { eq, sql } from "drizzle-orm";
 import { Forbidden, type Actor } from "./access.ts";
 import { saveUser } from "./admin.ts";
-import { createContact, ValidationError } from "./contacts.ts";
+import { createContact, findDuplicates, ValidationError } from "./contacts.ts";
 import { fieldKeys } from "../components/platform/deal-sections.ts";
 import { createDeal } from "./deals.ts";
 import { defaultDocuments } from "./doc-rules.ts";
@@ -17,15 +17,16 @@ import { openDb, type Db } from "./db.ts";
 import { applyWebhookEvent, verifyWebhook } from "./email.ts";
 import { base32, totp } from "./mfa.ts";
 import {
-  addNote, createClientExperience, finishUpload, inviteApplicant, portalDashboard, revokeInvitation, portalWorkspace, requestDocuments, reviewRequest, setStage, staffFile, staffReply, startConversation, startUpload,
+  addNote, createClientExperience, createLead, finishUpload, invitationPreview, pendingInvitationEmail, inviteApplicant, portalDashboard, revokeInvitation, portalWorkspace, requestDocuments, reviewRequest, setStage, staffFile, staffReply, startConversation, startUpload,
   topBarPortal,
+  setPortalAccess,
 } from "./portal.ts";
 import { runRetention } from "./portal-admin.ts";
 import {
   clientAddVersion, clientDeal, clientDeals, clientFile, clientFinishUpload, clientMarkRead, clientNotifications, clientReply, clientStartConversation,
   clientStartUpload, getClientAccount, onTempPassword, setOwnPassword, verifyClientLogin, type ClientAccount,
 } from "./portal-client.ts";
-import { clientInvitations, clients, dealBorrowers, deals, documentRequests, emailDeliveries, files, organizations, users } from "./schema.ts";
+import { clientInvitations, clients, dealBorrowers, deals, documentRequests, emailDeliveries, files, organizations, tasks, users } from "./schema.ts";
 import { seedIfEmpty } from "./seed.ts";
 import { putFile } from "./storage.ts";
 import { enableMfa, startMfa, verifyLogin } from "./users.ts";
@@ -78,7 +79,9 @@ test("the full workflow: invite, accept, request, upload, replace, message, stag
   // 1. Staff invites. No email provider in tests, so it says so and hands back the link instead of pretending.
   const inv = await inviteApplicant(db, as.agent, deal.id, a.id);
   assert.equal(inv.status, "not_configured");
-  assert.match(inv.login!.link, /\/portal\/login$/);
+  // The link is the one-time setup page; the code in it is the only place the temporary credential appears.
+  assert.equal(inv.login!.link.endsWith(`/portal/setup?i=${inv.invitationId}&t=${inv.login!.password}`), true);
+  assert.equal(await pendingInvitationEmail(db, inv.invitationId), "primary.flow@example.test");
   assert.equal(inv.login!.username, "primary.flow@example.test");
   assert.match(inv.login!.password!, /^[A-Za-z2-9]{12}$/);
   const [delivery] = await db.select().from(emailDeliveries).where(eq(emailDeliveries.invitationId, inv.invitationId));
@@ -140,7 +143,7 @@ test("the full workflow: invite, accept, request, upload, replace, message, stag
   const thread = (await portalWorkspace(db, as.agent, deal.id)).conversations.find((x) => x.id === c.id)!;
   assert.deepEqual(thread.messages.map((m) => m.body), ["Hello from the team", "Thanks, uploading now", "Got it"]);
   assert.equal(thread.messages[0].seen, true); // the client read it
-  const own = await clientStartConversation(db, account, deal.id, { subject: "Question", body: "When do we close?", fileIds: [] });
+  const own = await clientStartConversation(db, account, deal.id, { subject: "Question", body: "When\0 do we close?", fileIds: [] }); // NUL is dropped, not a database error
   assert.ok((await portalWorkspace(db, as.agent, deal.id)).conversations.some((x) => x.id === own.id));
 
   // 6. Staff moves the stage; the client sees done / current / upcoming and a notification.
@@ -318,7 +321,7 @@ test("retention purges closed deals' files and messages and closes portal access
 });
 
 test("client experience: rules pick the documents, then one step creates the deal, requests and portal invite", async () => {
-  assert.equal(defaultDocuments("Purchase", "Employee").length, 8);
+  assert.equal(defaultDocuments("Purchase", "Employee").length, 10);
   assert.equal(defaultDocuments("Refinance", "Self-Employed").length, 12); // 2 + 8 + 2, T1 / NOA once
   assert.ok(defaultDocuments("Business Loan", "Employee").some((d) => d.name === "Articles of Incorporation"));
   for (const k of ["mortgageRequest/Mortgage Breakdown/Application Purpose", "mortgageRequest/Mortgage Breakdown/Program", "borrowers/Employment/Self Employed", "borrowers/Residency/First Time Buyer"])
@@ -347,4 +350,48 @@ test("client experience: rules pick the documents, then one step creates the dea
   // The same email set up again (a new contact, a second login): the newest password must work, not just the first one found.
   const again = await createClientExperience(db, as.agent, { service: "Purchase", employment: "Employee", documents, borrowers: borrowers.slice(0, 1) });
   assert.ok(await verifyClientLogin(db, again.invite.login!.username, again.invite.login!.password!));
+});
+
+test("new lead: quick form creates the client, the lead and its checklist; nothing is sent unless asked", async () => {
+  const input = { firstName: "John", lastName: "Leadtest", email: "John.Leadtest@example.test", phone: "(416) 555-0100", service: "Purchase", employment: "Employee", source: "Referral", note: "Met at open house" };
+  await assert.rejects(createLead(db, as.agent, { ...input, phone: "555" }), /phone/);
+  await assert.rejects(createLead(db, as.agent, { ...input, email: "nope" }), /email/);
+  await assert.rejects(createLead(db, as.agent, { ...input, source: "Made up" }), /lead source/);
+  const other = (await db.select().from(users)).find((u) => u.organizationId === as.agent.organizationId && u.id !== as.agent.id)!;
+  await assert.rejects(createLead(db, as.agent, { ...input, agentId: other.id }), Forbidden);
+  // Longest allowed names: the first-contact task title is cut to fit, so the lead isn't left half-created behind an error.
+  assert.ok((await createLead(db, as.agent, { ...input, firstName: "A".repeat(100), lastName: "B".repeat(100), email: "long.name@example.test" })).dealId);
+  await assert.rejects(setPortalAccess(db, as.agent, (await createLead(db, as.agent, { ...input, email: "access.check@example.test" })).dealId, "not-a-uuid", false), /isn't an applicant/);
+
+  const sentBefore = (await db.select().from(emailDeliveries)).length;
+  const r = await createLead(db, as.agent, input);
+  assert.equal(r.invite, null);
+  assert.equal((await db.select().from(emailDeliveries)).length, sentBefore); // Create Lead Only: no email, no invitation
+  assert.equal((await db.select().from(clientInvitations).where(eq(clientInvitations.dealId, r.dealId))).length, 0);
+  const [deal] = await db.select().from(deals).where(eq(deals.id, r.dealId));
+  assert.equal(deal.status, "lead");
+  assert.equal(deal.fields["lead//Lead Stage"], "New Lead");
+  assert.equal(deal.fields["lead//Lead Source"], "Referral");
+  assert.deepEqual((await db.select().from(tasks).where(eq(tasks.dealId, r.dealId))).map((t) => [t.type, t.assigneeId]), [["followup", as.agent.id]]); // first-contact task
+  assert.equal(deal.fields["mortgageRequest/Mortgage Breakdown/Application Purpose"], "Purchase");
+  const reqs = await db.select().from(documentRequests).where(eq(documentRequests.dealId, r.dealId));
+  assert.deepEqual(reqs.map((x) => x.name).sort(), defaultDocuments("Purchase", "Employee").map((d) => d.name).sort());
+
+  // Duplicate check: same email (any case) or same phone digits finds the client; another firm never sees them.
+  const them = (await db.select().from(users)).find((u) => u.organizationId !== as.agent.organizationId);
+  assert.equal((await findDuplicates(db, as.agent, "", "", "john.leadtest@EXAMPLE.test"))[0]?.lastName, "Leadtest");
+  const byPhone = (await findDuplicates(db, as.agent, "", "", "", "416.555.0100")).find((c) => c.lastName === "Leadtest");
+  assert.ok(byPhone);
+  if (them) assert.equal((await findDuplicates(db, them, "John", "Leadtest", "john.leadtest@example.test", "4165550100")).length, 0);
+
+  // A second lead for the same client reuses the contact unchanged; inviting prepares a setup link and emails no password.
+  const again = await createLead(db, as.agent, { ...input, firstName: "Changed", contactId: byPhone.id, service: "Refinance", employment: "Self-Employed", invite: true });
+  const same = await findDuplicates(db, as.agent, "", "", "john.leadtest@example.test");
+  assert.equal(same.length, 1);
+  assert.equal(same[0].firstName, "John");
+  assert.equal(again.invite!.status, "not_configured");
+  assert.match(again.invite!.login!.link, /\/portal\/setup\?i=/);
+  const preview = await invitationPreview(db, as.agent, "John");
+  assert.equal(preview.configured, false);
+  assert.ok(!/password:/i.test(preview.body) && preview.body.includes("[secure one-time setup link]"));
 });

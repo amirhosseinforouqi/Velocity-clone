@@ -4,7 +4,7 @@ const id = () => uuid("id").primaryKey().defaultRandom();
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 
 // SLA targets, reminder thresholds and feature flags; defaults and validation live in admin.ts.
-export type OrgSettings = { sla: Record<string, number>; reminders: { urgent: number; warning: number; notice: number }; features: string[]; noteCategories: string[]; contactSubRoles: { role: string; name: string }[] };
+export type OrgSettings = { sla: Record<string, number>; reminders: { urgent: number; warning: number; notice: number }; features: string[]; noteCategories: string[]; leadStages: string[]; leadSources: string[]; contactSubRoles: { role: string; name: string }[]; qualification: { stressBuffer: number; rateFloor: number; revolvingPct: number } };
 
 export const organizations = pgTable("organizations", {
   id: id(),
@@ -548,3 +548,11 @@ export const notifications = pgTable("notifications", {
   readAt: timestamp("read_at", { withTimezone: true }),
   createdAt: createdAt(),
 }, (t) => [index("notifications_user_idx").on(t.userId, t.readAt), index("notifications_client_idx").on(t.clientId, t.readAt)]);
+
+// Failed sign-ins per key ("<email>" for staff, "c:<email>" for portal clients). In the database so every server
+// instance shares the lockout.
+export const loginFailures = pgTable("login_failures", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull(),
+  until: timestamp("until", { withTimezone: true }).notNull(),
+});

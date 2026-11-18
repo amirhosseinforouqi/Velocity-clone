@@ -4,7 +4,8 @@ import { fieldKey, sections } from "@/components/platform/deal-sections";
 import { enChrome, frChrome, frLabel, frStatus } from "@/components/platform/print-labels";
 import { getDb } from "@/server/db";
 import { dealCode, statusLabel } from "@/server/deal-status";
-import { getDeal } from "@/server/deals";
+import { getDeal, maskSins } from "@/server/deals";
+import { calcFields } from "@/server/metrics";
 import { PrintButton } from "./print-button";
 
 // Print Application (En / Fr): every filled-in workspace field, grouped like the workspace, printed or saved as PDF
@@ -19,16 +20,17 @@ export default async function PrintApplication({ params, searchParams }: { param
   const b = deal.borrowers[0];
   const applicant = { "First Name": b?.firstName, "Last Name": b?.lastName, Email: b?.email, "Home Phone": b?.homePhone, "Cell Phone": b?.cellPhone, "Work Phone": b?.workPhone };
   const values: Record<string, string> = {
-    ...deal.fields,
+    ...maskSins(deal.fields),
     ...Object.fromEntries(Object.entries(applicant).map(([k, v]) => [`borrowers/Applicant/${k}`, v ?? ""])),
     "closeOut//Closing Date": deal.closingDate ?? "",
   };
   const show = (name: string, v: string) => (name === "SIN" ? v.replace(/\d(?=(?:\D*\d){3})/g, "•") : v === "Yes" ? t.yes : v === "No" ? t.no : v);
   const printed = sections.flatMap((s) =>
     s.groups.flatMap((g) => {
-      const rows = (g.fields ?? []).filter((f) => !f.endsWith("|calc")).map((f) => {
-        const name = f.split("|")[0];
-        return [label(name), show(name, values[fieldKey(s, g, f)]?.trim() ?? "")] as const;
+      const rows = (g.fields ?? []).map((f) => {
+        const [name, type] = f.split("|");
+        const calc = type === "calc" ? calcFields[name].value(values) : null;
+        return [label(name), type === "calc" ? (calc === null ? "" : "$" + calc.toLocaleString("en-CA", { maximumFractionDigits: 2 })) : show(name, values[fieldKey(s, g, f)]?.trim() ?? "")] as const;
       }).filter(([, v]) => v);
       return rows.length ? [{ key: `${s.id}/${g.title ?? ""}`, title: [label(s.title), g.title && label(g.title)].filter(Boolean).join(" — "), rows }] : [];
     }),

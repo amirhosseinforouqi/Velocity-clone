@@ -102,6 +102,11 @@ test("uploads are type- and size-checked, mark the condition received, and downl
   const big = new Uint8Array(MAX_UPLOAD + 1);
   big.set(pdf);
   await reject("big.pdf", big, /10 MB/);
+  // A scanner that answers "infected" blocks the upload; nothing is stored.
+  const realFetch = globalThis.fetch;
+  process.env.MALWARE_SCAN_URL = "http://scanner.invalid/scan";
+  globalThis.fetch = async () => Response.json({ infected: true });
+  try { await reject("virus.pdf", pdf, /virus scan/); } finally { globalThis.fetch = realFetch; delete process.env.MALWARE_SCAN_URL; }
 
   const doc = await uploadDocument(db, as.agent, c.id, { name: '../"id"\n.pdf', bytes: pdf });
   assert.equal(doc.fileName, "..__id__.pdf");

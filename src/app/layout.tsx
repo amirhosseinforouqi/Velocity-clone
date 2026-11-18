@@ -20,10 +20,12 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await auth();
   return (
     <html lang="en" className={`${openSans.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
-        <SessionProvider session={await auth()}>{children}</SessionProvider>
+        {/* Keyed by user: the provider keeps its first session, so without this the menu is stale right after sign-in. */}
+        <SessionProvider key={session?.user?.id ?? "anon"} session={session}>{children}</SessionProvider>
       </body>
     </html>
   );
